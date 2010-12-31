@@ -1,0 +1,92 @@
+# /etc/bash/bashrc
+[[ $- != *i* ]] && { return ;}
+
+#export TERM="xterm-256color"
+
+C1='\033[1;32m'
+C2='\033[1;36m'
+C3='\033[1;30m'
+C4='\033[0m'
+C6='\033[1;32m'
+
+[ -z "$TERM" ] && echo "\$TERM not defined"
+
+case ${TERM} in
+    xterm*|rxvt*|Eterm|aterm|kterm|gnome*|interix) PROMPT_COMMAND='echo -ne "\033]0;${USER}@${HOSTNAME%%.*}:${PWD/$HOME/~}\007"' ;;
+    screen) PROMPT_COMMAND='echo -ne "\033_${USER}@${HOSTNAME%%.*}:${PWD/$HOME/~}\033\\"' ;;
+esac
+
+use_color=false
+#BSD#@# BSD doesn't typically come with dircolors so we need
+#BSD#@# to hardcode some terminals in here.
+#BSD#@case ${TERM} in
+#BSD#@	xterm*|rxvt*|Eterm|aterm|kterm|gnome*|screen|cons25) use_color=true;;
+#BSD#@esac
+
+safe_term=${TERM//[^[:alnum:]]/?}   # sanitize TERM
+match_lhs=""
+[[ -f ~/.dir_colors   ]] && match_lhs="${match_lhs}$(<~/.dir_colors)"
+[[ -f /etc/DIR_COLORS ]] && match_lhs="${match_lhs}$(</etc/DIR_COLORS)"
+[[ -z ${match_lhs}    ]] && type -P dircolors >/dev/null && match_lhs=$(dircolors --print-database)
+[[ $'\n'${match_lhs} == *$'\n'"TERM "${safe_term}* ]] && use_color=true
+
+if ${use_color} ; then
+	# Enable colors for ls, etc.  Prefer ~/.dir_colors #64489
+	if type -P dircolors >/dev/null ; then
+		if [[ -f ~/.dir_colors ]] ; then
+			eval $(dircolors -b ~/.dir_colors)
+		elif [[ -f /etc/DIR_COLORS ]] ; then
+			eval $(dircolors -b /etc/DIR_COLORS)
+		fi
+	fi
+
+	[ ${EUID} == 0 ] && { C5="\033[0;31m" ;} || { C5="\033[0;32m" ;}
+	PS1="\[${C3}\][\[${C5}\]\u\[${C3}\]@\[${C4}\]\H \w\[${C3}\]]\n\[${C3}\]-\[${C3}\]=\[${C4}\]>\[${C6}\]>\[${C4}\] "
+
+	#BSD#@export CLICOLOR=1
+	#GNU#@alias ls='ls --color=auto'
+	alias grep='grep --colour=auto'
+else
+	[[ ${EUID} == 0 ]] && { PS1='\u@\h \W \$ ' ;} || { PS1='\u@\h \w \$ ' ;}
+fi
+
+unset use_color safe_term match_lhs
+[ -e /etc/profile.env ] && { . /etc/profile.env ;}
+export EDITOR=${EDITOR:-/bin/nano}
+export PAGER=${PAGER:-/usr/bin/less}
+umask 022
+[ "$EUID" = "0" ] || [ "$USER" = "root" ] && { PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:${ROOTPATH}" ;} || { PATH="/usr/local/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/opt/bin:/vsys/scripts/binary:${PATH}" ;}
+export PATH ; unset ROOTPATH
+for sh in /etc/profile.d/*.sh ; do [ -r "$sh" ] && . "$sh" ; done ; unset sh
+
+# ssh rsa key
+skey="$HOME/.ssh/skey"
+#cd ~
+
+alias p="ps xaf"
+alias l="ls --color=auto"
+alias net="netstat -npa -A inet"
+alias pp="ps axfwwu"
+alias m="mount"
+alias umount="umount -fl"
+alias n="netstat -tupan"
+alias nn="netstat -npa -A inet"
+alias rm="rm -fr"
+alias cp="cp -fr"
+alias md="mkdir -p"
+alias ll="ls --color=auto -lha"
+alias me="mcedit -d"
+alias cpk="iconv -f cp1251 -t koi8-r $0 "
+
+
+shopt -s checkwinsize
+shopt -s histappend
+shopt -s cdspell
+shopt -s nocaseglob
+
+HISTSIZE=20000
+#HISTFILE=/vsys/bash_history
+PROMPT_COMMAND="history -a ; history -r ; $PROMPT_COMMAND"
+
+#[ -f "/etc/functions" ] && . /etc/functions
+

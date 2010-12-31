@@ -1,0 +1,123 @@
+#  Copyright (C) 2000-2010, Parallels, Inc. All rights reserved.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# This is a distribution configuration file template.
+# This configuration file is meant to run specific actions
+# depending on the Linux distribution the container is running.
+#
+# After an action is initiated, it requests vzctl to read the configuration
+# based on the value of OSTEMPLATE variable in the container configuration
+# file. In case an unknown distribution is found or OSTEMPLATE is not set,
+# the default configuration file default.conf is used.
+#
+
+# This script is launched inside a container on executing the following
+# commands:
+#	vzctl start CTID
+#	vzctl set CTID --ipadd <ip>
+#
+# The script is used to configure the network settings during the container
+# startup or upon the IP address(es) assignment.
+# The parameters are passed as environment variables.
+# Required parameters:
+#   VE_STATE	- the state of the container; can be one of:
+#		  starting | stopping | running
+# Optional parameters:
+#   IP_ADDR	- space-separated list of IP address(es) to be ADDED
+#   IPV6	- if set, IPv6 is enabled globally
+#   IPDELALL	- if set, tells to delete all the IP addresses
+#
+ADD_IP=dist-add_ip.sh
+
+# This script is launched inside a container on executing the following
+# commands:
+#	vzctl set CTID --ipdel <ip>
+#	vzctl set CTID --ipdel all
+#
+# The script is used to delete an existing IP address(es).
+# The parameters are passed as environment variables.
+# Required parameters:
+#   VE_STATE	- the state of the container; can be one of:
+#		  starting | stopping | running
+# Optional parameters:
+#   IP_ADDR	- space-separated list of IP address(es) to be DELETED
+#   IPV6	- if set, IPv6 is enabled globally
+#   IPDELALL	- if set, tells to delete all the IP addresses
+#
+DEL_IP=dist-del_ip.sh
+
+# This script is launched inside a CT on executing the following commands:
+#	vzctl set CTID --hostname <name>
+#	vzctl (re)start CTID (if HOSTNAME is set in CT config)
+#	vzctl set CTID (when changing the capability or iptables setup,
+#			and CT restarting is allowed for config changes)
+#
+# The script is used to configure the hostname of the container.
+# The parameters are passed as environment variables.
+# Required parameters:
+#   VE_STATE	- the state of the container; can be one of:
+#		  starting | stopping | running
+#   HOSTNM	- the hostname to be set
+#		  (can be empty in case of --hostname '' specified)
+# Optional parameters:
+#   IP_ADDR	- the first IP address of the container
+#
+SET_HOSTNAME=dist-set_hostname.sh
+
+# This script is launched inside a CT on executing the following command:
+#	vzctl set CTID --searchdomain <domain> --nameserver <ip>
+#
+# The script is used to configure DNS parameters in the /etc/resolv.conf file.
+# The parameters are passed as environment variables.
+# Optional parameters:
+#   SEARCHDOMAIN - space-separated list of search domains
+#   NAMESERVER	 - space-separated list of name server IPs
+#
+# Script usually modifies the /etc/resolv.conf file.
+#
+SET_DNS=dist-set_dns.sh
+
+# This script is launched inside a CT on executing the following command:
+#	vzctl set CTID --userpasswd <user:passwd>
+#
+# The script is used to add a new user or change the current password.
+# The parameters are passed as environment variables.
+# Required parameters:
+#   USERPW	- space-separated list of user:password pairs
+#
+SET_USERPASS=dist-set_userpass.sh
+
+# This script is launched inside a CT on executing the following command:
+#	vzctl set CTID --quotaugidlimit <num>
+#
+# The script is used to set up second level quota.
+# The parameters are passed as environment variables.
+# Required parameters:
+#   VE_STATE	- the state of the container; can be one of:
+#		  starting | stopping | running
+#   DEVFS	- container file system (usually 'simfs')
+#   MINOR	- the root device minor number
+#   MAJOR	- the root device major number
+SET_UGID_QUOTA=dist-set_ugid_quota.sh
+
+# This script is launched on the host system after the container creation:
+#	vzctl create CTID
+#
+# The script is used to perform certain postcreate tasks.
+# The parameters are passed as environment variables.
+# Required parameters:
+#   VE_ROOT	- the path to the container root directory (i.e. mount point)
+POST_CREATE=dist-postcreate.sh

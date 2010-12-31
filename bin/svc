@@ -1,0 +1,33 @@
+#!/bin/bash
+
+	. /etc/functions
+
+	_dev SET__LANGUAGE
+
+	SAVE_PATH="$PATH"
+	SERVICE_NAME="$1"
+	SERVICE_SVCS="$2"
+	SVCNAME="$1"
+
+	SVC_INIT="/etc/init.d/$SERVICE_NAME"
+	SVC_CONF="/etc/conf.d/$SERVICE_NAME"
+
+	[ -z "$1" ] && { bad_msg "$MSG_0152" ; exit 1;}
+	[ -z "$2" ] && {
+		. $SVC_INIT
+		[ -n "$description" ] && info_msg "Service name: $SVCNAME\n Description: $description" ; exit 0
+	}
+
+	
+	
+	eerror()	{ x=$1 ; x="${x:-...}" ; _e " ${RED}--${NORMAL} ${BOLD}${x}${NORMAL} " 2>&1 ;}
+	einfo()		{ x=$1 ; x="${x:-...}" ; _e " ${GREEN}>>${NORMAL} ${BOLD}${x}${NORMAL} " 2>&1 ;}
+	ebegin()	{ x=$1 ; x="${x:-...}" ; _e " ${GREEN}>>${NORMAL} ${BOLD}${x}${NORMAL} " 2>&1 ;}
+	eend()		{ x=$1 ; [ "$x" == "1" ] && echo -ne " ${RED}--${NORMAL} ${RED}errors found!${NORMAL} " 2>&1 ;}
+	
+	# executable section
+	[ -e "$SVC_CONF" 	 ] && . $SVC_CONF
+	[ -e "$SVC_INIT" 	 ] && . $SVC_INIT || { bad_msg "$MSG_0151" ; exit 1;}
+	[ -n "$SERVICE_SVCS" ] && PATH="" ; $SERVICE_SVCS ; PATH="$SAVE_PATH"
+	[ "$?" == "1" ] && bad_msg "$SVC_INIT $SERVICE_SVC errors found"
+	

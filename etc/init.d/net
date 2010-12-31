@@ -1,0 +1,31 @@
+#!/bin/bash
+
+_start() {
+
+	eval `egrep -ow "ipaddr:[^ ]+|iproute:[^ ]+|ipdns:[^ ]+" /proc/cmdline | while read i ; do echo $i | sed 's|:|=|g' ; done`
+	
+	[ -n "$ipaddr"  ] && [ -n "$iproute" ] && [ -n "$ipdns" ] && {
+		good_msg "Производится настройка сети: static"
+		ifconfig lo 127.0.0.1
+		ifconfig eth0 $ipaddr
+		rm -rf /etc/resolv.conf
+		echo "nameserver $ipdns" > /etc/resolv.conf
+		route add default gw $iproute
+	} || {
+		good_msg "Производится настройка сети: dhcpc"
+		ifconfig eth0 0.0.0.0 #2> /dev/null
+		udhcpc -n -q -s /etc/udhcpc_default.script > /dev/null 2>&1
+		#ifconfig lo 127.0.0.1 > /dev/null
+		
+		ifconfig lo 127.0.0.1 netmask 255.0.0.0 2>/dev/null
+		route add -net 127.0.0.0 netmask 255.0.0.0 gw 127.0.0.1 2>/dev/null
+		route add -net 127.0.0.0 netmask 255.0.0.0 gw 127.0.0.1 reject 2>/dev/null
+	}
+}
+
+_stop() {
+	good_msg "Останавливаем сеть"
+}
+
+. /sbin/rund
+

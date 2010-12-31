@@ -1,0 +1,986 @@
+#!/bin/bash
+# initialization functions for distribute startup
+# copyrights by virtualsystems
+# version of functions script 2.9
+
+[ -e "/linuxrc" 			] && rm -rf /linuxrc
+[ -f "/etc/settings" 		] && . /etc/settings || . etc/settings
+
+#[ -f "/etc/functions_msg" 	] && . /etc/functions_msg || . etc/functions_msg
+
+_e() { echo -e "$@" ;}
+
+get_cmdvar() 		{
+	[ -f "$PROC_CMD_FILE" ] || { mkdir -p /proc ; mount -t proc proc /proc ;}
+	egrep -o "${1}[^ ]*" $PROC_CMD_FILE || return 1
+}
+
+get_optvar_double() { local o=$(get_cmdvar "$1" | sed "s|^[^ ]*:||g")  ; [ -n "${o}" ] && _e "${o}" || false ;}
+get_optvar_point() 	{ local o=$(get_cmdvar "$1" | sed "s|^[^ ]*\.||g") ; [ -n "${o}" ] && _e "${o}" || false ;}
+get_optvar_dash() 	{ local o=$(get_cmdvar "$1" | sed "s|^[^ ]*=||g")  ; [ -n "${o}" ] && _e "${o}" || false ;}
+
+# messages
+cp_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${GREEN}++${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ;}
+bad_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${BAD}>>${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ; false ;}
+warn_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${WARN}++${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ;}
+good_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${GREEN}>>${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ; true ;}
+info_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${CYAN}??${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ;}
+presents_msg() 		{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${CYAN}!!${NORMAL} ${BOLD}${x}${NORMAL}" > $CONSOLE_LOG 2>&1 ;}
+dmesg_log() 		{ good_msg "You can read info ALT+F2" ; dmesg > ${CONSOLE_DEBUG} ;}
+view_vsys_ver() 	{ local f="$SYSTEM_VERSION_META" ; [ -f "${f}" ] && cat "${f}" ;}
+
+
+mac_addr_dev() 		{
+	b=($(ifconfig -a | egrep -w "HWaddr ${1:0:2}:${1:2:2}:${1:4:2}:${1:6:2}:${1:8:2}:${1:10:2}"))
+	[ -n "$1" ] && [ -n "${b[0]}" ] && echo ${b[0]} || false
+}
+
+mounted_probe() { egrep -qw "$@" /proc/mounts && return 0 || return 1 ;}
+usable_params() { sed -n '/_'$1'() {/,/\n}/p' $ETC_FUNC_FILE | egrep "[^ ]*__[^ ]*\)" | sed 's|)||g' | tr '\t' ' ' ;}
+
+include_lang() { [ -f "$LANGUAGE_DIR/${1}.lng" ] && . /$LANGUAGE_DIR/${1}.lng || . $LANGUAGE_DIR/${1}.lng ;}
+
+hdd_info_msg() {
+    hdparm -i $1 | egrep -o "Model=[^,]*|FwRev=[^,]*|UDMA modes: [^>]*" |
+    sed 's|Model=| HD DRIVE:\t |g;s|FwRev=| FIRMWARE:\t |g;s|UDMA modes: [^>]*\*| UDMA MODE:\t |g'
+    _e " TEMPERATURE:\t $(hddtemp -q $1 | awk '{print $4}')"
+}
+
+# nvram ;-)
+FSTYPE=$(get_optvar_double fstype:)
+NET_CMDLINE_DEV=$(mac_addr_dev $(get_optvar_double hwmac:))
+IP_CMDLINE_ADDR=$(get_optvar_double ipaddr:)
+GW_CMDLINE_ADDR=$(get_optvar_double ipgw:)
+HN_CMDLINE_ADDR=$(get_optvar_double hostname:)
+DNS_CMDLINE_ADDR=$(get_optvar_double dns:)
+GET_INIT=$(get_optvar_double init:)
+SYSTEM_DEV=$(get_optvar_double system_dev:)
+SECURE_DEV=$(get_optvar_double secure_dev:)
+SECURE_DAT_LABEL=$(get_optvar_double secure_dat:)
+NTP_HOST=$(get_optvar_double ntp:)
+LEDS_HEARTBEART=$(get_optvar_double leds:)
+LEDS_ALL_ENABLE=$(get_optvar_double leds:)
+DEBUG_LEVEL=$(get_optvar_double debug:)
+DAUSHOT_SELECT=$(get_optvar_double daushot:)
+DAUSHOT_HDSYNC_LABEL=$(get_optvar_double daushot_hdsync:)
+SYSTEM_DAT_LABEL=$(get_optvar_double system_dat:)
+SYSTEM_MOVE_DAT_LABEL=$(get_optvar_double system_move_dat:)
+LANGUAGE_SWITCH=$(get_optvar_double lang:)
+GET_INIT=$(get_optvar_double init:)
+SHARED_MEMORY_SIZE=$(get_optvar_double shm:)
+
+USABLE_PARAMS_DEV=$(usable_params dev)
+USABLE_PARAMS_RUN=$(usable_params run)
+USABLE_PARAMS_NET=$(usable_params net)
+
+[ -n "$DEBUG_LEVEL" ] && CLEAR="$CONSOLE_DEBUG"
+
+# Checker fs
+# required check_and_mount
+checkfs() {
+	# label name
+	# $1 -- sysdev
+
+	good_msg "$MSG_0100: $1"
+	fsck -T -p ${FSTYPE}="$1" > $CLEAR 2>&1
+	if [ "$?" == "0" ]
+	then
+		good_msg "$MSG_0104: ${1}"
+		return 0
+	else
+		warn_msg "$MSG_0102: ${1}"
+		fsck -T -y ${FSTYPE}="${1}" > $CLEAR 2>&1
+		if [ "$?" == "0" ]
+		then
+			good_msg "$MSG_0104: ${1}"
+		else
+			warn_msg "$MSG_0106: ${1}"
+			fsck -T -y ${FSTYPE}="${1}" > $CLEAR 2>&1
+			return 0
+		fi
+	fi
+
+}
+
+check_and_mount() {
+
+	# $1 -- sysdev or file
+	# $2 -- path/to/newroot
+
+	if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+	then
+
+		local SYSDEV_LABEL="$1"
+		local PATH_TO_MOUNT="$2"
+
+		if [ -f "$SYSDEV_LABEL" ]
+		then
+			mount -o loop "$SYSDEV_LABEL" "$PATH_TO_MOUNT"
+			if [ "$?" == "0" ]
+			then
+				good_msg "$MSG_0108: $SYSDEV_LABEL"
+			else
+				bad_msg "$MSG_0167: $SYSDEV_LABEL"
+				return 1
+			fi
+		else
+			checkfs $SYSDEV_LABEL
+			if [ "$?" == "0" ]
+			then
+				good_msg "$MSG_0101: $SYSDEV_LABEL"
+				[ -d "$PATH_TO_MOUNT" ] || mkdir -p "$PATH_TO_MOUNT"
+				mount ${FSTYPE}="$SYSDEV_LABEL" "$PATH_TO_MOUNT"
+				if [ "$?" == "0" ]
+				then
+					good_msg "$MSG_0108: $SYSDEV_LABEL"
+				else
+					bad_msg "$MSG_0107"
+					_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+				fi
+			else
+				bad_msg "$MSG_0107"
+				_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+			fi
+		fi
+	fi
+}
+
+
+
+_net() {
+	# options requested
+	# hwmac - hardware mac address
+	# ipaddr - ip for mac hardware
+	# ipgw - gateway
+	# hostname
+	# dns - domain name service example: 1.1.1.1,1.1.1.2 
+
+	[ -z "$1" ] && { info_msg "Please use variables:\n$USABLE_PARAMS_NET" ; return 1 ;}
+
+	case "$1" in
+		IF__UP_INTERFACE)
+			if [ "$IP_CMDLINE_ADDR" == "dhcp" ]
+			then
+				udhcpc
+			else
+				if [ -n "$NET_CMDLINE_DEV" ]
+				then
+				
+					[ -z "$IP_CMDLINE_ADDR" ] && { warn_msg "$MSG_155" ; ip_noop="0.0.0.0" ;}
+					[ -z "$GW_CMDLINE_ADDR" ] && { warn_msg "$MSG_156" ; gw_noop="0.0.0.0" ;}
+
+					# hwether
+					#ip link set dev $NET_CMDLINE_DEV up
+					#ip addr add $ip_addr dev $NET_CMDLINE_DEV
+					
+					ifconfig -a $NET_CMDLINE_DEV | egrep -qw "$IP_CMDLINE_ADDR"
+					if [ "$?" == "1" ]
+					then
+						
+						[ -z "$ip_noop" ] && [ -z "$gw_noop" ] && \
+							ifconfig $NET_CMDLINE_DEV $IP_CMDLINE_ADDR up
+							route add default gw $GW_CMDLINE_ADDR
+						
+						[ -n "$ip_noop" ] && [ -n "$gw_noop" ] && \
+							warn_msg "$MSG_0165: ipaddr, ipgw"
+						
+						# localhost
+						ip link set dev lo up
+						ip addr add 127.0.0.1 dev lo
+						ip route add 127.0.0.0/8 via 127.0.0.1 dev lo
+	
+						good_msg "ip: $IP_CMDLINE_ADDR, gw: $GW_CMDLINE_ADDR, iface: $NET_CMDLINE_DEV"
+					
+						# resolve
+						if [ -n "$DNS_CMDLINE_ADDR" ]
+						then
+							z=(${DNS_CMDLINE_ADDR/,/ })
+							for x in ${z[*]} ; do _e "nameserver $x" ; done > $RESOLV_CONF_FILE
+							good_msg "dns primary: ${z[0]}, slave: ${z[1]}"
+						else
+							warn_msg "$MSG_0163"
+							info_msg "$MSG_0164"
+						fi
+					else
+						warn_msg "$MSG_0176"
+						info_msg "$(ifconfig -a $NET_CMDLINE_DEV)"
+					fi
+				fi
+			fi
+			
+			[ -n "$HN_CMDLINE_ADDR" ] && hostname "$HN_CMDLINE_ADDR" || hostname safemode
+		;;
+		IF__DOWN_INTERFACE)
+			if [ -n "$NET_CMDLINE_DEV" ]
+			then
+				ifconfig $NET_CMDLINE_DEV down
+				ifconfig lo down
+			else
+				warn_msg "$MSG_0149"
+			fi
+		;;
+	esac
+}
+
+_run() {
+
+	# SET__INITRD_ENV - activating init to initram
+	# newroot -  activating init from $NEW_ROOT
+
+	[ -z "$1" ] && { info_msg "Please use variables:\n$USABLE_PARAMS_RUN" ; return 1 ;}
+	
+	case "$1" in
+		VIEW__LEVEL_BAR)
+			echo -ne "."
+			sleep 0.3
+		;;
+		VIEW__VERSION_SYSTEM)
+			[ -f "$CDROM/VERSION.TXT" ] && cat "$CDROM/VERSION.TXT" || \
+			[ -f "$CDROM/version.txt" ] && cat "$CDROM/version.txt"
+		;;
+		VIEW__PRESENTS)
+			cpu_c=$(egrep -c "model name" /proc/cpuinfo)
+			cpu_i=$(egrep 'model name' /proc/cpuinfo  | sed 's|model name\t: ||g' | head -n1)
+			ver_i=$(_run VIEW__VERSION_SYSTEM)
+			[ -n "$ver_i" ] && presents_msg "${BOLD}$MSG_0127: ${NORMAL} $ver_i"
+			[ -n "$cpu_c" ] && [ -n "$cpu_i" ] && presents_msg "${BOLD}$MSG_0174: ${GREEN}${cpu_i}${NORMAL} ${BOLD}$MSG_0175: ${GREEN}${cpu_c} ${NORMAL}"
+    	;;
+		START__INITRD_INITTAB)
+			good_msg "${MSG_0142}: $2"
+			exec $SYSVINIT_FILE
+		;;
+		SET__INITRD_ENV)
+			good_msg "${MSG_0141}"
+			[ -f "/etc/bash/bashrc" ] && . /etc/bash/bashrc
+			
+			export HOME="/root"
+		;;
+		SET__NEWROOT_ENV)
+			good_msg "$MSG_0173"
+		;;
+		START__NEWROOT_SYSTEM)
+			
+			case "$GET_INIT" in
+				sysvinit) 	_run SET__NEWROOT_ENV SHELL__SYSVINIT ;;
+				safe)      	_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE ;;
+			esac
+		;;
+	esac
+
+	case "$2" in
+		SHELL__SYSVINIT)
+			if [ -e "$SYSVINIT_FILE" ]
+			then
+				good_msg "$MSG_0142: $2"
+				exec <${CONSOLE_LOG} >${CONSOLE_LOG} 2>&1
+				exec switch_root ${NEW_ROOT} $SYSVINIT_FILE
+			else
+				bad_msg "$MSG_0137: $SYSVINIT_FILE"
+				_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+			fi
+		;;
+		SHELL__FAIL_SAFE_MODE)
+			warn_msg "$MSG_0142: $2"
+			info_msg "$MSG_0171"
+			good_msg "$MSG_0172"
+			_net IF__UP_INTERFACE
+			#_run load_sshd
+			exec /sbin/init
+		;;
+	esac
+}
+
+
+_dev() {
+
+	[ -z "$1" ] && { info_msg "Please use variables:\n$USABLE_PARAMS_DEV" ; return 1 ;}
+	
+	case "$1" in
+		SET__NETWORK_TIME)
+			
+			if [ -n "$NTP_HOST" ]
+			then
+				ntpdate -sbut 3 $NTP_HOST ; hwclock -w
+				good_msg "Setting time: $(date)"
+			fi
+		;;
+		SET__LED_HEARTBEAT)
+			
+			if [ -n "$LEDS_HEARTBEART" ]
+			then
+				case "${LEDS_HEARTBEART}" in
+					alix) _e "heartbeat" > "/sys/class/leds/alix:2/trigger" ;;
+					other) good_msg "dev" ;;
+				esac
+			fi
+		;;
+		SET__LED_ALL_ON)
+			
+			if [ -n "$LEDS_ALL_ENABLE" ]
+			then
+				case "${LEDS_ALL_ENABLE}" in
+					alix) _e "0" > "/sys/class/leds/alix:2/brightness" ; _e "1" > "/sys/class/leds/alix:2/brightness" ;;
+					other) good_msg "dev" ;;
+				esac
+			fi
+		;;
+		MOUNT__DEV_TMPFS)
+			cd /
+			mount -t tmpfs tmpfs -o size=2M /dev
+			tar xf $DEV_TAR_FILE > $CLEAR 2>&1
+			mdev -s ; sleep 0.5 ; mdev -s
+		;;
+		MOUNT__INITRD_SYSTEM)
+			for xd in ${CREATE_INITRD_DIRS[*]}
+			do
+				[ -d "/${xd}" ] || mkdir -p /${xd}
+			done
+			
+			mount -o remount,rw /
+			
+			[ -f "$PROC_CMD_FILE" ] || mount -t proc proc /proc
+			mount -t sysfs sysfs /sys
+			
+			if [ -e "/etc/mtab" ]
+			then
+				rm -rf /etc/mtab
+				ln -s /proc/mounts /etc/mtab
+			fi
+		;;
+		SET__DEBUG_LOG_LEVEL)
+			# debug dmesg switch level
+			[ -e "$DEBUG_PROC_FILE" ] && [ -n "$DEBUG_LEVEL" ] && \
+				_e "$DEBUG_LEVEL 4 1 7" > $DEBUG_PROC_FILE || \
+				_e "7 4 1 7" > $DEBUG_PROC_FILE
+		;;
+		DETECT__MDADM_RAID)
+			mdadm --assemble --scan > $CLEAR 2>&1
+			mdadm --auto-detect  > $CLEAR 2>&1
+		;;
+		MOUNT__INITRD_KERNEL_MODULES)
+
+			[ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ] && SQMODULES_PATH="$CDROM/$BOOTLOADER"
+			[ "$FSTYPE" == "CDROM" ] && SQMODULES_PATH="$CDROM/$ISOBOOTLOADER"
+			[ -d "$KERNEL_MODULES_PATH" ] || mkdir -p "$KERNEL_MODULES_PATH"
+
+
+			MIN_NAME="$(uname -r | sed 's|\.||g;s|-||g').sq"
+
+			[ -f "$SQMODULES_PATH/$SQMODULES" ] && SQMODULES_FILE_PATH="$SQMODULES_PATH/$SQMODULES"
+			[ -f "$SQMODULES_PATH/$MIN_NAME"  ] && SQMODULES_FILE_PATH="$SQMODULES_PATH/$MIN_NAME"
+			
+			if [ -f "$SQMODULES_FILE_PATH" ]
+			then
+				mount -t squashfs -o loop $SQMODULES_FILE_PATH $KERNEL_MODULES_PATH/
+				if [ "$?" == "1" ]
+				then
+					bad_msg "$MSG_0134"
+					_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+				fi
+			else
+				bad_msg "$MSG_0135: $SQMODULES_FILE_PATH"
+				#_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+			fi
+		;;
+		SET__CONSOLE)
+			if [ -n "$2" ] && [ -n "$3" ]
+			then
+				for x in console tty1 tty2 tty3 ttyS0 ttyS1 ; do setfont "$3" -C /dev/$x > $CLEAR 2>&1 ; done
+				[ -f "$2" ] && mapscrn $2 > $CLEAR 2>&1
+			else
+				warn_msg "Not defined:\n\tTERMINAL_MAP\n\tTERMINAL_FONT"
+			fi
+		;;
+		SET__LANGUAGE)
+	
+			exec <${CONSOLE_LOG} >${CONSOLE_LOG} 2>&1
+
+			if [ -n "$LANGUAGE_SWITCH" ]
+			then
+				[ -f "$LANGUAGE_DIR/${LANGUAGE_SWITCH}.lng"  ] && . /$LANGUAGE_DIR/${LANGUAGE_SWITCH}.lng > /dev/null 2>&1 || \
+				[ -f "/$LANGUAGE_DIR/${LANGUAGE_SWITCH}.lng" ] && . $LANGUAGE_DIR/${LANGUAGE_SWITCH}.lng > /dev/null 2>&1
+				
+				if [ -n "$MSG_0179" ]
+				then
+					_dev SET__CONSOLE "$TERMINAL_MAP" "$TERMINAL_FONT"
+					good_msg "$MSG_0179: $LANGUAGE_SWITCH"
+				else
+					warn_msg "Youre language not found or not defined vars in language file, please use specific language"
+				fi
+			else
+				[ -f "$LANGUAGE_DIR/en.lng"  ] && . /$LANGUAGE_DIR/en.lng > /dev/null 2>&1 || \
+				[ -f "/$LANGUAGE_DIR/en.lng" ] && . $LANGUAGE_DIR/en.lng > /dev/null 2>&1
+				
+				_dev SET__CONSOLE "$TERMINAL_MAP" "$TERMINAL_FONT"
+				good_msg "$MSG_0179: $LANGUAGE_SWITCH"
+			fi
+			
+		;;
+		SCAN__DEVICES)
+		if [ -n "$2" ]
+		then
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+			
+				echo -ne "Scanning devices."
+			
+				cx=0 ; while :; do
+				
+					findfs ${FSTYPE}="$2" > $CLEAR 2>&1
+					if [ "$?" == "0" ]
+					then
+						mdev -s ; true ; _e ; break
+					else
+						
+						if [ "$cx" -gt "20" ] && [ "$cx" -lt "30" ]
+						then
+							warn_msg "$MSG_0160: ${FSTYPE}=\"$2\"" ; mdev -s ; sleep 0.5
+						else
+							_run VIEW__LEVEL_BAR ; mdev -s
+						fi
+						
+						# max reached
+						if [ "$cx" -gt "31" ]
+						then
+							bad_msg "$MSG_0158: ${FSTYPE}=\"$2\""
+							break
+						fi
+					fi
+					
+					((cx++))
+					
+				done
+			else
+				bad_msg "$MSG_0161: fstype"
+				false
+			fi
+		else
+			bad_msg "$MSG_0162"
+			false
+		fi
+		;;
+		MOUNT__SYSTEM_DEV)
+			# Подключение system_dev
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$SYSTEM_DEV" ]
+				then
+					_dev SCAN__DEVICES $SYSTEM_DEV && \
+					check_and_mount "$SYSTEM_DEV" "$CDROM"
+				fi
+			fi
+		;;
+		MOUNT__SQLZMA_AUFS)
+			# Подключение образа системы
+			case "${GET_INIT}" in
+				sysvinit)
+					[ -e "$SQFSIMAGE" ] && mount -t squashfs -o loop $SQFSIMAGE $SQDIR/
+					if [ "$?" == "0" ]
+					then
+						good_msg "$MSG_0159: squashfs"
+						
+						if [ -z "$DAUSHOT_HDSYNC_LABEL" ]
+						then
+						
+							[ -z "$SHARED_MEMORY_SIZE" ] && SHARED_MEMORY_SIZE="80"
+							if [ "$SHARED_MEMORY_SIZE" -ge "99" ]
+							then
+								SHARED_MEMORY_SIZE="80"
+								warn_msg "$MSG_0182: ${SHARED_MEMORY_SIZE}%"
+							fi
+							
+							mount -t tmpfs tmpfs -o rw,size=${SHARED_MEMORY_SIZE}% $AMEMR/
+							if [ "$?" == "0" ]
+							then
+								good_msg "$MSG_0157: 80%"
+							else
+								warn_msg "$MSG_0158: tmpfs"
+							fi
+						fi
+
+						
+						mount -t aufs none ${NEW_ROOT} -o dirs=${AMEMR}=rw:${SQDIR}=ro
+						if [ "$?" == "0" ]
+						then
+							good_msg "$MSG_0159: aufs2"
+						else
+							bad_msg "$MST_0166: aufs2"
+							_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+							return 1
+						fi
+					else
+						bad_msg "$MSG_0158: squashfs"
+						_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+						return 1
+					fi
+				;;
+			esac
+		;;
+		MOUNT__UPDATE_SYSTEM_MOVE_DATA)
+		
+			# SYSTEM_MOVE_DAT_LABEL - лейбл устройства в blkid, где расположен
+			# обновлённый system.dat образ
+			# Обновление system.dat файла
+			# необходимо иметь SYSTEM_MOVE_DAT_LABEL и доступ
+			# к обновлённому файлу в хранилище system_move_dat:SHAREDISK
+			# 1. поиск устройства
+			# 2. подключение
+			# 3. обновление
+			# 4. отключение
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$SYSTEM_MOVE_DAT_LABEL" ]
+				then
+					good_msg "$MSG_0114: $SYSTEM_MOVE_DAT_LABEL"
+					_dev SCAN__DEVICES $SYSTEM_MOVE_DAT_LABEL
+					
+					if [ "$?" == "1" ]
+					then
+						bad_msg "$MSG_0115: $SYSTEM_MOVE_DAT_LABEL"
+						_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+					fi
+	
+					[ -d "/$$" ] || mkdir -p "/$$"
+					check_and_mount "${SYSTEM_MOVE_DAT_LABEL}" "/$$"
+					if [ -f "/$$/${SQIMAGE}" ]
+					then
+						if [ -f "${CDROM}/${SQIMAGE}" ]
+						then
+							good_msg "$MSG_0178: ${CDROM}/${SQIMAGE}.bak"
+							mv ${CDROM}/${SQIMAGE} ${CDROM}/${SQIMAGE}.bak ; sync
+							good_msg "$MSG_0116: ${CDROM}/${SQIMAGE}"
+							bar "/$$/${SQIMAGE}" ${CDROM}/${SQIMAGE}
+							if [ "$?" == "0" ]
+							then
+								good_msg "$MSG_0117" ; good_msg "$MSG_0118"
+								[ -f "$CDROM/$BOOTLOADER/$BOOTLOADER.cfg" ] && g_cfg="$CDROM/$BOOTLOADER/$BOOTLOADER.cfg"
+								[ -f "$CDROM/$ISOBOOTLOADER/$ISOBOOTLOADER.cfg" ] && g_cfg="$CDROM/$ISOBOOTLOADER/$ISOBOOTLOADER.cfg"
+								umount /$$ ; sync
+								
+								if [ -z "$g_cfg" ]
+								then
+									warn_msg "Bootloader not found"
+									return 1
+								fi
+								
+								if  [ -f "$g_cfg" ]
+								then
+									sed 's|system_move_dat:[^ ]*||g' ${g_cfg} > /tmp/.sys
+									if [ "$?" == "0" ]
+									then
+										mv /tmp/.sys $g_cfg
+										good_msg "$MSG_0119: $g_cfg"
+										sync
+									else
+										warn_msg "$MSG_0120"
+									fi
+								fi
+							else
+								bad_msg "$MSG_0122: ${SQIMAGE}"
+								_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+							fi
+						else
+							bad_msg "$MSG_0123: ${CDROM}/${SQIMAGE}"
+							_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+						fi
+					else
+						bad_msg "$MSG_0123: /$$/${SQIMAGE}"
+					fi
+				fi
+			fi
+		;;
+		MOUNT__SECURE_DAT)
+			# user data secure.dat в виде логического жесткого диска
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$SECURE_DAT_LABEL" ]
+				then
+				
+					[ -d "/$VSYS_DIR" ] || mkdir -p "/$VSYS_DIR"
+
+					# opt free - is it none crypto device
+					case "$SECURE_DAT_LABEL" in
+						free)
+							check_and_mount "$VSYS_DATA_LOOP_PATH" "/$VSYS_DIR"
+							if [ "$?" == "0" ]
+							then
+								good_msg "$MSG_0169: $tmp/$VSYS_DATA_LOOP"
+							else
+								bad_msg "$MSG_0158: $tmp/$VSYS_DATA_LOOP"
+								false
+							fi
+						;;
+						crypto) return 0 ;;
+						*) return 1 ;;
+					esac
+				fi
+			fi
+		;;
+		MOUNT__SECURE_DEV)
+			# подключение secure_dev
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$SECURE_DEV" ]
+				then
+					check_and_mount "${SECURE_DEV}" "${VSYS_DIR}"
+					if [ "$?" == "0" ]
+					then
+						good_msg "$MSG_0124: $SECURE_DEV"
+					else
+						warn_msg "$MSG_0121: $SECURE_DEV"
+						_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+					fi
+				fi
+			fi
+		;;
+		MOUNT__DAUSHOT_HDSYNC)
+			# Подключение устройства для хранения изменяемых данных
+			# Устройство может быть любым по LABEL или UUID
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$DAUSHOT_HDSYNC_LABEL" ]
+				then
+					good_msg "$MSG_0177: $DAUSHOT_HDSYNC_LABEL"
+					check_and_mount "$DAUSHOT_HDSYNC_LABEL" "$AMEMR"
+					if [ "$?" == "0" ]
+					then
+						local sf=$(df -h | egrep -w $AMEMR)
+						good_msg "$MSG_0111: $DAUSHOT_HDSYNC_LABEL ${sf}"
+						daushot_hdsync_mount="1"
+					else
+						bad_msg "$MSG_0105: $DAUSHOT_HDSYNC_LABEL"
+						_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+					fi
+				fi
+			fi
+		;;
+		MOUNT__CDROM_SYSTEM_DATA)
+			if [ "$FSTYPE" == "CDROM" ]
+			then
+				good_msg "$MSG_0177: $FSTYPE"
+				
+				mdev -s ; sleep 0.5 ; mdev -s ; sleep 0.5
+				
+				for xf in sr hd
+				do
+					find /dev -name "${xf}*" | while read xd
+					do
+						file -s "${xd}" | egrep -qw "9660" && {
+							mount "$xd" "$CDROM/" > $CLEAR 2>&1 && {
+								good_msg "$MSG_0148 $CDROM"
+								break
+							} || warn_msg "$MSG_0149: $xd"
+						}
+					done
+				done
+			fi
+		;;
+		MOUNT__NEWROOT_SYSTEM)
+		
+			# Необходимо: NEWROOT__STRIPE, MOUNT__HN_SYSTEM_DATA
+			# Перемещение компонентов системы в новую изоляцию
+			case "${GET_INIT}" in
+				sysvinit)
+					x=0 ; for ((x=0;3>x;x++))
+						do ((a++))
+						[ -e "${NEW_ROOT}/dev/tty${a}" ] || mknod "${NEW_ROOT}/dev/tty${a}" c 4 ${a}
+					done ; x=0 ; a=0
+					
+					[ -e "${NEW_ROOT}/dev/console" ] || mknod "${NEW_ROOT}/dev/console" c 5 1
+
+					rm -rf $NEW_ROOT/lib/rc/init.d/started/* > $CLEAR 2>&1
+					find $NEW_ROOT/var/run -type f -exec rm -rf {} ';'
+					find $NEW_ROOT/var/run -type p -exec rm -rf {} ';'
+					find $NEW_ROOT/var/run -type s -exec rm -rf {} ';'
+
+
+					for xx in $SQDIR $CDROM $AMEMR
+					do
+						NEW_ROOT_MOVE="$NEW_ROOT/mnt${xx}"
+						[ -d "$NEW_ROOT_MOVE" ] || mkdir -p "$NEW_ROOT_MOVE"
+						mount -n --move "$xx" "$NEW_ROOT_MOVE" > $CLEAR 2>&1 || bad_msg "$MSG_0168: $NEW_ROOT_MOVE"
+					done
+					
+					mounted_probe $KERNEL_MODULES_PATH && mount -n --move $KERNEL_MODULES_PATH $NEW_ROOT/$KERNEL_MODULES_PATH > $CLEAR
+					mounted_probe /$VSYS_DIR && mount -n --move /$VSYS_DIR $NEW_ROOT/$VSYS_DIR > $CLEAR
+				;;
+			esac
+			
+			
+		;;
+		MODULES__LIST_FOUND_MODULES)
+		
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				AUTOSTART_MODULES="$CDROM/$BOOTLOADER/modules.enable"
+				DISABLE_MODULES="$CDROM/$BOOTLOADER/modules.disable"
+			fi
+			if [ "$FSTYPE" == "CDROM" ]
+			then
+				AUTOSTART_MODULES="$CDROM/$ISOBOOTLOADER/modules.enable"
+				DISABLE_MODULES="$CDROM/$ISOBOOTLOADER/modules.disable"
+			fi
+			if [ -f "$DISABLE_MODULES" ]
+			then
+				dmod=$(cat "$DISABLE_MODULES")
+				[ -z "$dmod" ] && dmod="FAKESEARCH"
+			else
+				dmod="FAKESEARCH"
+			fi
+			
+			[ -f "$AUTOSTART_MODULES" ] && amod=$(cat "$AUTOSTART_MODULES") || amod=""
+			
+			pcimodules | sort -u | egrep -v "${dmod}"
+			
+			[ -n "$amod" ] && _e "${amod}"
+		;;
+		MODULES__LOAD_DEPENDS)
+			modules="$2"
+			if [ -n "$modules" ] ; then
+				echo -en "    ${CYAN}${modules}${NORMAL} "
+				modprobe --show-depends ${modules} | while read i ; do
+					lnz=(${i})
+					module_dep=$(basename "${lnz[1]}" | sed 's|\.ko$||g')
+					modprobe -q "$module_dep" > $CLEAR 2>&1
+					if [ "$?" == "0" ]
+					then
+						if [[ "${modules}" != "${module_dep}" ]]
+						then
+							echo -en "-> ${GREEN}${module_dep}${NORMAL} "
+						fi
+					else
+						echo -en "${RED}${module_dep}${NORMAL} "
+					fi
+				done ; echo
+			fi
+		;;
+		MODULES__LOAD_FRAMEBUFFER_DRIVERS)
+			good_msg "$MSG_0133"
+			_dev MODULES__LIST_FOUND_MODULES |
+			egrep "^[^>]+fb" | while read x
+				do _dev MODULES__LOAD_DEPENDS $x
+			done && true || false
+		;;
+		MODULES__LOAD_PCI_DRIVERS)
+			good_msg "$MSG_0132"
+			_dev MODULES__LIST_FOUND_MODULES |
+			egrep -v "^[^>]+fb" | while read x
+				do _dev MODULES__LOAD_DEPENDS $x
+			done && true || false
+		;;
+	esac
+}
+
+
+# syncronization procedures
+_dau() {
+
+	# $1 -- case procedure
+	# $2 -- reserved local param
+	# $3 -- reserved local param
+	# $4 -- reserved local param
+
+	# VIEW__CORRUPTED_FILES -- list corrupted zero byte files
+	# DELETE__UNUSED_FILES -- deleting for new_root unused files
+	# UNPACK__SYNC_RECOVERY -- recovery saves unpack
+	# UNPACK__SYNC_ARCHIVE -- latest.txz (default save) unpack
+	# UPDATE__FILES_SYNC_CACHE -- update sync
+	# UPDATE__SYNC_CACHE -- update cache files
+
+	[ -z "$1" ] && { info_msg "Please use predefined variables" ; return 1 ;}
+
+	case "$1" in
+		SCAN__CORRUPTED_FILES)
+		
+			# this option find zero byte file
+			# in to aufs memory directory
+			find $2/ -type f | while read file
+			do
+				cmp -sn512 /dev/zero "$i" && _e "$file"
+			done
+		;;
+		CHECK__CORRUPTED_FILES)
+			_dau SCAN__CORRUPTED_FILES $AMEMR | while read bad_file
+			do
+				[ -f "$bad_file" ] && _e "$MSG_0188: $bad_file"
+			done
+		;;
+		DELETE__UNUSED_FILES)
+			
+			# $2 -- snapshot file.del
+			# $3 -- directory
+			
+			if [ -f "$2" ]
+			then
+				good_msg "$MSG_0183"
+				cat "$2" | while read d
+				do
+					[ -z "$d" ] && continue
+					[ "$d" == "/" ] && continue
+					rm -rf "$3/$d" > $CLEAR 2>&1
+					
+				done
+			else
+				warn_msg "$MSG_0137: $2"
+				return 1
+			fi
+		;;
+		UNPACK__SYNC_RECOVERY)
+			
+			# $2 -- unpack directory output
+
+			find $DAUSHOT_CACHE_SAVES_DIR/ -name "sys-*.$DAUSHOT_COMPRESS_FILE_TYPE" | while read i
+			do
+				[ -n "$i" ] && basename "$i"
+			done | sort -ur | while read x
+			do
+				CACHE_DEL_FILE=$(basename $i | sed 's|.'$DAUSHOT_COMPRESS_FILE_TYPE'|.'$DAUSHOT_COMPRESS_FILE_DEL'|g')
+				if [ -f "$DAUSHOT_CACHE_SAVES_DIR/$CACHE_DEL_FILE" ]
+				then
+					_dau DELETE__UNUSED_FILES $DAUSHOT_CACHE_SAVES_DIR/$CACHE_DEL_FILE $2/
+				else
+					warn_msg "$MSG_0185"
+				fi
+				
+				$DAUSHOT_UNCOMPRESS $DAUSHOT_CACHE_SAVES_DIR/$x | bar -ns -dan | tar -x -C $2/
+				if [ "$?" == "0" ]
+				then
+					good_msg "$MSG_0184: $x"
+					break
+				else
+					warn_msg "$MSG_0185: $x"
+				fi
+			done
+
+		;;
+		UNPACK__SYNC_ARCHIVE)
+			
+			# $2 -- sync_archive.txz
+			# $3 -- sync_archive.del
+			# $4 -- unpack directory - NEW_ROOT or other
+			
+			if [ -f "$2" ]
+			then
+				_dau DELETE__UNUSED_FILES $3 $4/
+				$DAUSHOT_UNCOMPRESS $2 | bar -ns -dan | tar -x -C $4/
+				if [ "$?" == "1" ]
+				then
+					warn_msg "${MSG_0138}: $2"
+					_dau UNPACK__SYNC_RECOVERY $4/ || return 1
+				fi
+			else
+				bad_msg "${MSG_0145}: $2"
+				return 1
+			fi
+		;;
+		UPDATE__FILES_SYNC_CACHE)
+		
+			# $2 -- DAUSHOT_TMP_DIR
+			# $3 -- DAUSHOT_DMP_DIR
+			# $4 -- DAUSHOT_SNAPSHOT_TXZ_FILE
+			
+			[ -z "$2" ] && return 1
+			[ -z "$3" ] && return 1
+			[ -z "$4" ] && return 1
+			
+			# recreating
+			find $2/ -type f | sed "s|^${2}||g" | while read f
+			do
+				if [ ! -e "$NEW_ROOT/$f" ]
+				then
+					d_name=$(dirname $3/$f)
+					[ -d "$d_name" ] || mkdir -p "$d_name"
+					cp -rap "$2/$f" "$3/$f"
+					cp_msg "$MSG_0139: $f"
+				fi
+			done
+			
+			# packing
+			tar -cf - -C "$3" . | bar -ns -dan | $DAUSHOT_COMPRESS > $4
+			if [ "$?" == "0" ]
+			then
+				rm -rf $2/
+				rm -rf $3/
+				good_msg "$MSG_0140: $4"
+			else
+				bad_msg "$MSG_0144: $4"
+				return 1
+			fi
+		;;
+		UPDATE__SYNC_CACHE)
+		
+			# for only system_move_dat:LABEL
+			if [ -n "$SYSTEM_MOVE_DAT_LABEL" ]
+			then
+				good_msg "$MSG_0130"
+				[ -d "$DAUSHOT_TMP_DIR" ] || mkdir -p $DAUSHOT_TMP_DIR/
+				[ -d "$DAUSHOT_DMP_DIR" ] || mkdir -p $DAUSHOT_DMP_DIR/
+				
+				_dau UNPACK__SYNC_ARCHIVE "$DAUSHOT_SNAPSHOT_TXZ_FILE" "$DAUSHOT_SNAPSHOT_DEL_FILE" "$DAUSHOT_TMP_DIR"
+				if [ "$?" == "1" ]
+				then
+					bad_msg "$MSG_0187: UNPACK__SYNC_ARCHIVE" ; return 1
+				fi
+				
+				_dau UPDATE__FILES_SYNC_CACHE "$DAUSHOT_TMP_DIR" "$DAUSHOT_DMP_DIR" "$DAUSHOT_SNAPSHOT_TXZ_FILE"
+				if [ "$?" == "1" ]
+				then
+					bad_msg "$MSG_0187: UPDATE__FILES_SYNC_CACHE" ; return 1
+				fi
+			fi
+		;;
+		VIEW__ALL_SAVES_TIME)
+			find $DAUSHOT_CACHE_SAVES_DIR -name "*.$DAUSHOT_COMPRESS_FILE_TYPE" | sed "s|$DAUSHOT_CACHE_SAVES_DIR/sys-||g;s|.$DAUSHOT_COMPRESS_FILE_TYPE||g"
+		;;
+		EXEC__DAUSHOT)
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				[ -d "$NEW_ROOT" ] && [ -d "$DAUSHOT_CACHE_DIR"       ] || mkdir -p "$DAUSHOT_CACHE_DIR"
+				[ -d "$NEW_ROOT" ] && [ -d "$DAUSHOT_CACHE_SAVES_DIR" ] || mkdir -p "$DAUSHOT_CACHE_SAVES_DIR"
+	
+				if [ -z "$DAUSHOT_HDSYNC_LABEL" ]
+				then			
+					# if used boot param system_move_dat
+					#_dau UPDATE__SYNC_CACHE
+					
+					case "$DAUSHOT_SELECT" in
+						latest)
+							# regular sync latest
+							if [ -f "$DAUSHOT_SNAPSHOT_TXZ_FILE" ]
+							then
+								_dau UPDATE__SYNC_CACHE
+								_dau UNPACK__SYNC_ARCHIVE "$DAUSHOT_SNAPSHOT_TXZ_FILE" "$DAUSHOT_SNAPSHOT_DEL_FILE" "$NEW_ROOT"
+								#_dau CHECK__CORRUPTED_FILES
+							else
+								bad_msg "$MSG_0145: $DAUSHOT_SNAPSHOT_TXZ_FILE"
+								return 1
+							fi
+						;;
+						load=*)
+							LOAD_SAVED=$(_e "$DAUSHOT_SELECT" | sed 's|load=||g')
+							LOAD_SAVED_TXZ_FILE="$DAUSHOT_CACHE_SAVES_DIR/sys-${LOAD_SAVED}.$DAUSHOT_COMPRESS_FILE_TYPE"
+							LOAD_SAVED_DEL_FILE="$DAUSHOT_CACHE_SAVES_DIR/sys-${LOAD_SAVED}.$DAUSHOT_COMPRESS_FILE_DEL"
+							if [ -f "$LOAD_SAVED_TXZ_FILE" ]
+							then
+								_dau UNPACK__SYNC_ARCHIVE "$LOAD_SAVED_TXZ_FILE" "$LOAD_SAVED_DEL_FILE" "$NEW_ROOT/"
+								# only saved time sync loading
+								good_msg "$MSG_0181: $LOAD_SAVED"
+							else
+								warn_msg "$MSG_0113: $LOAD_SAVED_TXZ_FILE"
+								return 1
+							fi
+						;;
+						*) info_msg "$MSG_0180"
+						;;
+					esac
+				fi
+			fi
+		;;
+	esac
+}
+
+
+
+
+# the end of file
+

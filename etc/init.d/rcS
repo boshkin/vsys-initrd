@@ -1,0 +1,6 @@
+#!/bin/bash
+PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin"
+source /etc/bash/bashrc
+
+#echo "Welcome to shell runlevels"
+

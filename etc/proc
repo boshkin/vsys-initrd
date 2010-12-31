@@ -1,0 +1,17 @@
+#!/bin/sh
+DIALOG=${DIALOG=dialog}
+
+COUNT=10
+(
+while test $COUNT != 110
+do
+echo $COUNT
+echo "XXX"
+echo "Новое сообщение ($COUNT процентов)"
+echo "Строка 2"
+echo "XXX"
+COUNT=`expr $COUNT + 5`
+sleep 0.5
+done
+) |
+$DIALOG --no-shadow --no-collapse --no-lines --title "Индикатор" --gauge "А вот пример простейшего индикатора" $(tput lines) $(tput cols) 0

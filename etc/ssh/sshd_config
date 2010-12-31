@@ -1,0 +1,69 @@
+Port 22
+AddressFamily any
+#ListenAddress 0.0.0.0
+#ListenAddress ::
+Protocol 2
+# HostKey for protocol version 1
+#HostKey /etc/ssh/ssh_host_key
+# HostKeys for protocol version 2
+#HostKey /etc/ssh/ssh_host_rsa_key
+#HostKey /etc/ssh/ssh_host_dsa_key
+#KeyRegenerationInterval 1h
+#ServerKeyBits 1024
+#SyslogFacility AUTH
+LogLevel INFO
+#LoginGraceTime 2m
+#PermitRootLogin yes
+#StrictModes yes
+MaxAuthTries 6
+#MaxSessions 10
+RSAAuthentication yes
+PubkeyAuthentication yes
+AuthorizedKeysFile	.ssh/authorized_keys
+#RhostsRSAAuthentication no
+#HostbasedAuthentication no
+#IgnoreUserKnownHosts no
+#IgnoreRhosts yes
+PasswordAuthentication no
+#PermitEmptyPasswords no
+#ChallengeResponseAuthentication yes
+#KerberosAuthentication no
+#KerberosOrLocalPasswd yes
+#KerberosTicketCleanup yes
+#KerberosGetAFSToken no
+#GSSAPIAuthentication no
+#GSSAPICleanupCredentials yes
+UsePAM yes
+
+#AllowAgentForwarding yes
+#AllowTcpForwarding yes
+#GatewayPorts no
+#X11Forwarding no
+#X11DisplayOffset 10
+#X11UseLocalhost yes
+PrintMotd no
+PrintLastLog no
+#TCPKeepAlive yes
+UseLogin yes
+#UsePrivilegeSeparation yes
+#PermitUserEnvironment no
+#Compression delayed
+#ClientAliveInterval 0
+#ClientAliveCountMax 3
+#UseDNS yes
+#PidFile /var/run/sshd.pid
+#MaxStartups 10
+#PermitTunnel no
+#ChrootDirectory none
+
+# no default banner path
+#Banner none
+
+# override default of no subsystems
+Subsystem	sftp	/usr/lib/misc/sftp-server
+
+# Example of overriding settings on a per-user basis
+#Match User anoncvs
+#	X11Forwarding no
+#	AllowTcpForwarding no
+#	ForceCommand cvs server

@@ -1,0 +1,32 @@
+# Cron jobs needed for OpenVZ
+
+# -- WARNING -- WARNING -- WARNING -- WARNING -- WARNING -- WARNING --
+# ------------------  EDIT THE CORRECT FILE  -------------------------
+# This file is copied to /etc/cron.d/vz from
+# /etc/vz/cron/vz when the vz service is started
+# via its init.d script and the file
+# /etc/cron.d/vz is cleared when the
+# service is stopped. Therefore any edits made directly to
+# /etc/cron.d/vz will be lost anytime the vz service
+# restarts.
+#
+# To make changes, edit the master copy /etc/vz/cron/vz
+# (or add your own /etc/vz/cron/vz* files)
+# and run /etc/init.d/vz update-cron.
+#
+# The reason this is done this way is because the OpenVZ cron job
+# should only be invoked if the vz service is enabled and not
+# just as a consequence of installing the vzctl as it was the case
+# previously. The file /etc/cron.d/vz
+# cannot simply be linked to the master copy in
+# /etc/vz/cron/ because for security reasons cron
+# will not process crontab files that are links or writeable by
+# anybody else but root, thus the file must be copied
+# into /etc/cron.d/ with the right ownership and permissions.
+
+
+# Clean containers' network rules (arp,route,iptables)
+*/5 * * * * root /usr/share/vzctl/scripts/vpsnetclean
+
+# Start containers marked as rebooted.
+*/5 * * * * root /usr/share/vzctl/scripts/vpsreboot

@@ -1,0 +1,58 @@
+#!/bin/sh
+#  Copyright (C) 2000-2009, Parallels, Inc. All rights reserved.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+# Create container's private area.
+#
+# Parameters are passed in environment variables.
+# Required parameters:
+#   VE_PRVT		- path to root of CT private areas
+#   PRIVATE_TEMPLATE	- path to private template used as a source for copying
+
+. /usr/lib/vzctl/scripts/vps-functions
+
+vzcheckvar VE_PRVT PRIVATE_TEMPLATE
+
+create_prvt()
+{
+	local TMP AVAIL NEEDED HEADER OPT
+	local TAR_OPT="--numeric-owner"
+
+	[ -d "$VE_PRVT" ] ||
+		vzerror "Destination directory does not exist: $VE_PRVT" ${VZ_FS_NEW_VE_PRVT}
+	[ -f "$PRIVATE_TEMPLATE" ] ||
+		vzerror "Tarball does not exist: $PRIVATE_TEMPLATE" ${VZ_FS_NEW_VE_PRVT}
+	HEADER="$(od -A n -N 2 -t x1 -- "$PRIVATE_TEMPLATE")" ||
+		vzerror "Invalid tarball: $PRIVATE_TEMPLATE" ${VZ_FS_NEW_VE_PRVT}
+	TMP="$(df -P "$VE_PRVT")" ||
+		vzerror "Failed to calculate available disk space on $VE_PRVT" ${VZ_FS_NEW_VE_PRVT}
+	AVAIL="$(echo "$TMP" | awk 'END{print $4}')"
+	if [ "$HEADER" = ' 1f 8b' ]; then
+		NEEDED="$(gzip -l "$PRIVATE_TEMPLATE" | awk 'END{print int($2/1024)}')"
+		OPT=-z
+	else
+		NEEDED="$(find "$PRIVATE_TEMPLATE" -maxdepth 0 -path "$PRIVATE_TEMPLATE" -printf %k)"
+		OPT=
+	fi
+	[ "$AVAIL" -ge "$NEEDED" ] ||
+		vzerror "Insufficient disk space in $VE_PRVT; available: $AVAIL, needed: $NEEDED" ${VZ_FS_NO_DISK_SPACE}
+	tar -C "$VE_PRVT" ${TAR_OPT} ${OPT} -xf "$PRIVATE_TEMPLATE" ||
+		vzerror "Error in tar ${TAR_OPT} ${OPT} -xf $PRIVATE_TEMPLATE" ${VZ_FS_NEW_VE_PRVT}
+}
+
+create_prvt
+exit 0

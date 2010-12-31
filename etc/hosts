@@ -1,0 +1,7 @@
+127.0.0.1       localhost vsys
+::1             localhost
+10.0.0.1        HN
+
+192.168.1.13    c2.vsys c2
+192.168.1.12    c1.vsys c1
+192.168.1.11    desktop.vsys

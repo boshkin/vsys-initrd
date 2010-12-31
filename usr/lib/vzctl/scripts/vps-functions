@@ -1,0 +1,236 @@
+#!/bin/sh
+#  Copyright (C) 2000-2009, Parallels, Inc. All rights reserved.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+# Common stuff for vzctl helper scripts
+
+# get the name of the script
+SELFNAME="${0##*/}"
+
+# Set the sane umask
+umask 022
+
+# Error codes
+VZ_INVALID_PARAMETER_SYNTAX=20
+VZ_FS_NO_DISK_SPACE=46
+VZ_FS_BAD_TMPL=47
+VZ_FS_NEW_VE_PRVT=48
+VZ_CHANGEPASS=74
+VZ_CANT_ADDIP=34
+VZ_IP_INUSE=78
+
+# iptables parameters
+VE_STATE_DIR="/var/lib/vzctl/veip/"
+CONF_DIR="/etc/vz/conf/"
+
+ARPSEND_CMD="arpsend -c 1 -w 1"
+IP_CMD="ip"
+
+# Prints error message and exits
+# Parameters:
+#   $1 - error message
+#   $2 - exit code
+# Example of usage:
+#   vzerror "Fatal error" 1
+vzerror()
+{
+	# print errors to stderr too
+	ERR=$?
+	echo "$SELFNAME ERROR: $1" 1>&2
+	exit $2
+}
+
+# Prints warning message
+# Parameters:
+#   $1 - a message
+# Example of usage:
+#   vzwarning 'Invalid user'
+vzwarning()
+{
+	echo "$SELFNAME WARNING: $1" 1>&2
+}
+
+# Prints debug message
+# Parameters:
+#   $* - debug message
+# Example of usage:
+#   vzdebug Trying to start ls
+vzdebug()
+{
+	echo "$SELFNAME: $*" 1>&2
+}
+
+# Checks if environment variable exists,
+# and exits with exit code 1 if not
+# Parameters:
+#   $* - option names
+# Example:
+#   vzcheckvar VEID IP_ADDR
+vzcheckvar()
+{
+	local var
+
+	for var; do
+		eval test -n "\"\$$var\"" ||
+			vzerror "Missing parameter: $var" $VZ_INVALID_PARAMETER_SYNTAX
+	done
+}
+
+# This function fills $NETDEVICES with all network interfaces
+# You should always call it before calling vzarp
+vzgetnetdev()
+{
+	# Get a list of interfaces, excluding ones with LOOPBACK,
+	# NOARP, or SLAVE flags
+	NETDEVICES=`${IP_CMD} addr list | awk '
+	/^[0-9]+: / {
+		dev="";
+	}
+	/^[0-9]+: / && /[^A-Z_]UP[^A-Z_]/ && !/[^A-Z_]LOOPBACK[^A-Z_]/ \
+			&& !/[^A-Z_]SLAVE[^A-Z_]/ && !/[^A-Z_]NOARP[^A-Z_]/ {
+		if ($2 !~ /^veth[0-9]+/)
+			dev=$2;
+	}
+	/^[\ \t]+inet6? / {
+		if (dev != "") print (dev);
+		dev="";
+	}' | sed -e 's/:$//' -e 's/@.*$//'`
+}
+
+# Find neighbour interfaces for a given CT IP.
+# Make sure to source /etc/vz/vz.conf before calling this,
+# in order to get the value of $NEIGHBOUR_DEVS from it.
+vz_get_neighbour_devs()
+{
+	[ -n "$NETDEVICES" ] || vzwarning 'Device list is empty'
+	[ -n "$1" -a -n "$NETDEVICES" ] || return 1
+
+	if [ "$NEIGHBOUR_DEVS" != 'detect' ]; then
+		echo $NETDEVICES
+		return 0
+	fi
+
+	local route devs dev netdev
+
+	route="$(${IP_CMD} route get "$1" |grep ' dev .* src ')"
+	# match: $1 ... dev $dev ...
+	devs="$(echo "$route" |sed -ne '/ via /! s/^.* dev \+\([^ ]\+\) .*$/\1/p;Q')"
+	[ -n "$devs" ] ||
+	# match: $1 ... via $1 ... dev $dev ...
+	devs="$(echo "$route" |sed -ne 's/^\([^ ]\+\) \(.* \)\?via \+\1 \(.* \)\?dev \+\([^ ]\+\) .*$/\4/p;Q')"
+	[ -n "$devs" ] || return 0
+
+	for netdev in $NETDEVICES; do
+		for dev in $devs; do
+			if [ "$dev" = "$netdev" ]; then
+				echo "$dev"
+			fi
+		done
+	done
+}
+
+# Adds/deletes public ARP records for given IP for all interfaces
+# Parameters:
+#   $1		- should be either "add" or "del"
+#   $2		- IP address
+#   $NETDEVICES - Network devices used to take MAC addresses from
+vzarp()
+{
+	local dev
+
+	for dev in $(vz_get_neighbour_devs "$2"); do
+		${IP_CMD} neigh "$1" proxy "$2" dev "$dev" >/dev/null 2>&1
+
+		# Send ARP request to update neighbour ARP caches
+		if [ "$1" = "add" ]; then
+			${ARPSEND_CMD} -U -i "$2" -e "$2" "$dev" ||
+				vzwarning "$ARPSEND_CMD -U -i $2 -e $2 $dev FAILED"
+		fi
+	done
+}
+
+# Send ARP request to detect that somebody already have this IP
+vzarpipdetect()
+{
+	[ -n "$1" ] || return
+	[ "$SKIP_ARPDETECT" = 'yes' ] && return
+	local errwarn
+	[ "$ERROR_ON_ARPFAIL" = 'yes' ] && errwarn=vzerror || errwarn=vzwarning
+
+	local dev ip
+
+	for ip in $1; do
+		for dev in $(vz_get_neighbour_devs "$ip"); do
+			${ARPSEND_CMD} -D -e "$ip" "$dev" ||
+				$errwarn "$ARPSEND_CMD -D -e $ip $dev FAILED" 1
+		done
+	done
+}
+
+vzaddrouting4()
+{
+	local src_addr=
+
+	if [ -n "$VE_ROUTE_SRC_DEV" ]; then
+		src_addr=`${IP_CMD} route list table local dev "$VE_ROUTE_SRC_DEV" |
+			grep '^local' | cut -d' ' -f2 | grep -v '^127\.' | head -n 1`
+		[ -n "$src_addr" ] ||
+			vzerror "Unable to get source ip [${VE_ROUTE_SRC_DEV}]" $VZ_CANT_ADDIP
+		src_addr="src $src_addr"
+	fi
+	${IP_CMD} route add "$1" dev venet0 $src_addr ||
+		vzerror "Unable to add route ${IP_CMD} route add $1 dev venet0 $src_addr" $VZ_CANT_ADDIP
+}
+
+vzaddrouting6()
+{
+	${IP_CMD} route add "$1" dev venet0 ||
+		vzerror "Unable to add route ${IP_CMD} route add $1 dev venet0" $VZ_CANT_ADDIP
+}
+
+# Sets VE0 source routing for given IP
+# Parameters:
+#   $1 - IP address
+vzaddrouting()
+{
+
+	${IP_CMD} route list table all "$1" | fgrep -qs "$1 dev venet0" &&
+		return 0
+	if [ "${1#*:}" = "$1" ]; then
+		vzaddrouting4 "$1"
+	else
+		vzaddrouting6 "$1"
+	fi
+}
+
+# Deletes VE0 source routing for given IP
+# Parameters:
+#   $1 - IP address
+vzdelrouting()
+{
+	${IP_CMD} route list table all "$1" | fgrep -qs "$1 dev venet0" ||
+		return 0
+	local arg
+
+	if [ "${1%%:*}" = "$1" ]; then
+		arg="route del $1 dev venet0"
+	else
+		arg="-6 route flush $1 dev venet0"
+	fi
+	${IP_CMD} $arg ||
+		vzwarning "vzdelrouting: ${IP_CMD} $arg failed"
+}

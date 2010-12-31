@@ -1,0 +1,116 @@
+#!/bin/bash
+# Copyrights in virtualsystems.ru
+# Edited by pp--
+# Version 1.5
+# this script creating and activating swap file
+# need deprecated to work system
+# needed boot option parameters in /proc/cmdline
+# swap.auto --  опция указывает что при загрузке системы будет задетекчен логический свап раздел либо ранее созданный свап файл на одном из логических дисков
+#               если логического свап раздела не будет найдено в системе, то скрипт создаст свап файл на логическом диске в котором достаточно места для данной операции.
+#               если свап файл был обнаружен ранее созданный, то этот файл будет подключен в качестве свап раздела.
+# swap.sdb3 --  опция указывает с какого логического раздела подключать свап файл, сам свап файл система создаст сама.
+
+. /vsys/scripts/functions
+
+log_file="/dev/log"
+append_cmd_line=$(cat /proc/cmdline)
+
+[ $EUID == 0 ] || echo "Недостаточно прав для выполнения этой программы"
+
+CREATING_AND_ACTIVATING_SWAP_FILE() {
+
+	swap_file_path="$2"
+	mem_size_m="$1"
+
+	dd if=/dev/zero of="${swap_file_path}" bs=1M count=$mem_size_m > /dev/null 2>&1
+	if [ "$?" == "0" ]
+	then
+		good_msg "Свап файл: ${swap_file_path} создан"
+	else
+		bad_msg "Невозможно создать: ${swap_file_path} ошибка вызвана dd"
+		exit 1
+	fi
+
+	mkswap -f "${swap_file_path}"
+	if [ "$?" == "0" ]
+	then
+		good_msg "Активируем свап файл: ${swap_file_path}"
+		swapon "${swap_file_path}"
+	fi
+}
+
+_start() {
+
+	swap_total=($(cat /proc/meminfo | egrep -w "SwapTotal:"))
+	swap_total_m=$(( ${swap_total[1]} / 1024 ))
+	mem_total=($(cat /proc/meminfo | egrep "MemTotal:"))
+	mem_size_m=$(( ${mem_total[1]} / 1024 ))
+
+	#kmd=$(echo "$1" | sed 's|swap.||g')
+
+	if [ "$swap_total_m" != "0" ]
+	then
+		bad_msg "Свап раздел уже был подключен"
+		exit 1
+	fi
+
+	df 2> /dev/null \
+	| egrep "sd[a-Z][0-9]+|md[0-9]+" \
+	| egrep -v "sda[0-9]+" \
+	| while read i
+	do
+	
+		i=(${i})
+		disk_size_m=$(( ${i[3]} / 1024 ))
+		mounted=($(mount | egrep -w "${i[0]}"))
+		
+		# если логический диск является swap разделом
+		logic_swap=($(blkid | egrep -w "swap" | head -n1))
+		if [ -n "${logic_swap/:/}" ]
+		then
+			if [ -e "${logic_swap/:/}" ]
+			then
+				good_msg "Активируем найденный логический раздел: ${logic_swap/:/}"
+				swapon ${logic_swap/:/}
+				if [ "$?" == "0" ]
+				then
+					good_msg "Раздел: ${logic_swap/:/} успешно подключен"
+					exit 0
+				else
+					warn_msg "Программа: swapon ${logic_swap/:/} вернула ошибку"
+					#exit 1
+				fi
+			fi
+		fi
+		# поиск swap файла на разделах жестких дисков
+		if [ "$disk_size_m" -gt "$mem_size_m" ]
+		then
+			if [ -n "${mounted[0]}" ]
+			then
+				swap_file_path="${mounted[2]}/vsys_pagefile.swap"
+				if [ -f "${swap_file_path}" ]
+				then
+					good_msg "Активируем свап файл: ${swap_file_path}"
+					swapon "${swap_file_path}" && { complete_operation="true" ;}
+				else
+					warn_msg "Свап файл: ${swap_file_path} не найден на указанном разделе"
+					good_msg "Создаём свап файл: vsys_pagefile.swap в директории: ${mounted[2]}"
+					CREATING_AND_ACTIVATING_SWAP_FILE "$mem_size_m" "$swap_file_path" && { complete_operation="true" ;}
+				fi
+			fi
+		else
+			bad_msg "Хард диск ${mounted[0]} не смонтирован" ; continue
+		fi
+		[ "$complete_operation" == "true" ] && break
+	done
+
+}
+
+_stop() {
+
+	good_msg "Деактивируется свап"
+
+
+}
+
+. /sbin/rund

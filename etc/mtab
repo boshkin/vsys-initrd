@@ -1,0 +1,2 @@
+rootfs / rootfs rw 0 0
+proc /proc proc rw 0 0

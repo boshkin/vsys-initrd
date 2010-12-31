@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [ -z "$1" ]
+then
+	echo "Пустой параметр"
+	exit
+fi
+
+ldd $(which $1) |
+while read i
+do
+	i=(${i})
+	if [ -f "${PWD}${i[2]}" ]
+	then
+		echo "Ок: ${PWD}${i[2]}"
+	else
+		echo "Not found: ${PWD}${i[2]}"
+	fi
+done

@@ -1,0 +1,178 @@
+#!/bin/bash
+
+#[ -f "/etc/functions" ] && . /etc/functions || . etc/functions || warn_msg "Cannot load etc/functions"
+
+_dau() {
+
+	# $1 -- case procedure
+	# $2 -- reserved local param
+	# $3 -- reserved local param
+	# $4 -- reserved local param
+
+	# DELETE__UNUSED_FILES -- deleting for new_root unused files
+	# UNPACK__SYNC_RECOVERY -- recovery saves unpack
+	# UNPACK__SYNC_ARCHIVE -- latest.txz (default save) unpack
+	# UPDATE__FILES_SYNC_CACHE -- update sync
+	# UPDATE__SYNC_CACHE -- update cache files
+	
+
+	[ -z "$1" ] && { info_msg "Please use predefined variables" ; return 1 ;}
+	
+	case "$1" in
+		DELETE__UNUSED_FILES)
+			
+			# $2 -- snapshot file.del
+			# $3 -- directory
+			
+			if [ -f "$2" ]
+			then
+				good_msg "Deleting unused files"
+				cat "$2" | while read d
+				do
+					[ -e "${3}/${d}" ] && rm -rf "${3}/${d}"
+				done
+			else
+				warn_msg "${MSG_0137}: ${2}"
+				return 1
+			fi
+		;;
+		UNPACK__SYNC_RECOVERY)
+			
+			# $2 -- unpack directory output
+
+			find $DAUSHOT_CACHE_SAVES_DIR/ -name "sys-*.$DAUSHOT_COMPRESS_FILE_TYPE" | while read i
+			do
+				[ -n "$i" ] && basename "$i"
+			done | sort -ur | while read x
+			do
+				$DAUSHOT_UNCOMPRESS $DAUSHOT_CACHE_SAVES_DIR/$x | bar -ns -dan | tar -x -C $2/ && o="0" || o="1"
+				if [ "$?" == "0" ]
+				then
+					good_msg "Unpacked recovery sync: $x"
+					CACHE_DEL_FILE=$(basename $i | sed 's|.'$DAUSHOT_COMPRESS_FILE_TYPE'|.'$DAUSHOT_COMPRESS_FILE_DEL'|g')
+					if [ -f "$DAUSHOT_CACHE_SAVES_DIR/$CACHE_DEL_FILE" ]
+					then
+						_dau DELETE__UNUSED_FILES $DAUSHOT_CACHE_SAVES_DIR/$CACHE_DEL_FILE $2/
+					else
+						warn_msg "Cannot delete unused files"
+					fi
+					break
+				else
+					warn_msg "Recovery file: $x is corrupt."
+				fi
+			done
+
+		;;
+		UNPACK__SYNC_ARCHIVE)
+			
+			# $2 -- sync_archive.txz
+			# $3 -- sync_archive.del
+			# $4 -- unpack directory - NEW_ROOT or other
+			
+			if [ -f "$2" ]
+			then
+				#upd_cache
+				$DAUSHOT_UNCOMPRESS $2 | bar -ns -dan | tar -x -C $4/ && o="0" || o="1"
+		
+				if [ "$o" == "0" ]
+				then
+					_dau DELETE__UNUSED_FILES $3 $4/
+				else
+					warn_msg "${MSG_0138}: $2"
+					_dau UNPACK__SYNC_RECOVERY $3/ || return 1
+				fi
+			else
+				bad_msg "${MSG_0145}: $2"
+				return 1
+			fi
+		;;
+		UPDATE__FILES_SYNC_CACHE)
+		
+			# $2 -- DAUSHOT_TMP_DIR
+			# $3 -- DAUSHOT_DMP_DIR
+			# $4 -- DAUSHOT_SNAPSHOT_TXZ_FILE
+			
+			[ -z "$2" ] && return 1
+			[ -z "$3" ] && return 1
+			[ -z "$4" ] && return 1
+			
+			# recreating
+			find $2/ -type f | sed "s|^${2}||g" | while read f
+			do
+				if [ ! -e "$NEW_ROOT/$f" ]
+				then
+					d_name=$(dirname $3/$f)
+					[ -d "$d_name" ] || mkdir -p "$d_name"
+					cp -rap "$2/$f" "$3/$f"
+					cp_msg "$MSG_0139: $f"
+				fi
+			done
+			
+			# packing
+			tar -cf - -C "$3" . | bar -ns -dan | xz -9 > $4
+			if [ "$?" == "0" ]
+			then
+				rm -rf $2/
+				rm -rf $3/
+				good_msg "$MSG_0140: $4"
+			else
+				bad_msg "$MSG_0144: $4"
+				return 1
+			fi
+		;;
+		UPDATE__SYNC_CACHE)
+			if [ "$FSTYPE" == "LABEL" ] || [ "$FSTYPE" == "UUID" ]
+			then
+				if [ -n "$SYSTEM_MOVE_DAT_LABEL" ]
+				then
+					good_msg "$MSG_0130"
+					[ -d "$DAUSHOT_TMP_DIR" ] || mkdir -p $DAUSHOT_TMP_DIR/
+					[ -d "$DAUSHOT_DMP_DIR" ] || mkdir -p $DAUSHOT_DMP_DIR/
+					
+					_dau UNPACK__SYNC_ARCHIVE "$DAUSHOT_SNAPSHOT_TXZ_FILE" "$DAUSHOT_SNAPSHOT_DEL_FILE" "$DAUSHOT_TMP_DIR"
+					if [ "$?" == "1" ]
+					then
+						bad_msg "Could not update: UNPACK__SYNC_ARCHIVE" ; return 1
+					fi
+					
+					_dau UPDATE__FILES_SYNC_CACHE "$DAUSHOT_TMP_DIR" "$DAUSHOT_DMP_DIR" "$DAUSHOT_SNAPSHOT_DEL_FILE"
+					if [ "$?" == "1" ]
+					then
+						bad_msg "Could not update: UPDATE__FILES_SYNC_CACHE" ; return 1
+					fi
+				fi
+			fi
+		;;
+		EXEC__DAUSHOT)
+			[ -d "$NEW_ROOT" ] && [ -d "$DAUSHOT_CACHE_DIR" ] || mkdir -p "$DAUSHOT_CACHE_DIR"
+			[ -d "$NEW_ROOT" ] && [ -d "$DAUSHOT_CACHE_SAVES_DIR" ] || mkdir -p "$DAUSHOT_CACHE_SAVES_DIR"
+
+			# if used boot param system_move_dat			
+			_dau UPDATE__SYNC_CACHE
+			
+			case "$DAUSHOT_SELECT" in
+				latest)
+				
+					# regular sync latest
+					if [ -f "$DAUSHOT_SNAPSHOT_TXZ_FILE" ]
+					then
+						#_dau DELETE__UNUSED_FILES ${DAUSHOT_SNAPSHOT_DEL_FILE} ${NEW_ROOT}/
+						_dau UNPACK__SYNC_ARCHIVE "$DAUSHOT_SNAPSHOT_TXZ_FILE" "$DAUSHOT_SNAPSHOT_DEL_FILE" "$DAUSHOT_TMP_DIR"
+						return 0
+					else
+						bad_msg "$MSG_0145: $DAUSHOT_SNAPSHOT_TXZ_FILE"
+						return 1
+					fi
+				;;
+				load=*)
+					# only saved time sync loading	
+					good_msg "$DAUSHOT_SELECT"
+				;;
+				*) info_msg "help"
+				;;
+			esac
+		;;
+	esac
+}
+
+

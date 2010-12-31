@@ -1,0 +1,57 @@
+#!/bin/sh
+#  Copyright (C) 2000-2008, Parallels, Inc. All rights reserved.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+veidmark='envID:'
+namemark='Name:'
+
+usage()
+{
+	echo 'Usage: vzpid [pid ...] [-h]'
+}
+
+header()
+{
+	printf '%s\t%s\t%s\n' 'Pid' 'VEID' 'Name'
+}
+
+getveid()
+{
+	local pid="$1"
+
+	[ -f "/proc/$pid/status" ] || return
+	awk -v "pid=$pid" '
+BEGIN {veid=0; name=""}
+($1 == "'"$namemark"'") {name = $2}
+($1 == "'"$veidmark"'") {veid = $2}
+END {printf("%d\t%s\t%s\n", pid, veid, name)}
+	' <"/proc/$pid/status"
+}
+
+if [ $# -eq 0 ]; then
+	usage >&2
+	exit 1
+elif [ $# -eq 1 -a "$1" = '-' ]; then
+	set -- `tr -s '[[:space:]]' ' '`
+elif [ $# -eq 1 -a "$1" = '-h' ]; then
+	usage
+	exit 0
+fi
+
+header
+for i; do
+	getveid "$i"
+done

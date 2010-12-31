@@ -1,0 +1,101 @@
+#!/bin/sh
+#  Copyright (C) 2000-2009, Parallels, Inc. All rights reserved.
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+VERBOSE=0
+CPUINFO=/proc/cpuinfo
+FRSHD=/proc/fairsched
+
+usage()
+{
+	echo >&2 'Usage: vzcpucheck [-v]'
+	exit 2
+}
+
+if [ $# -eq 1 ]; then
+	if [ "$1" = '-v' ]; then
+		VERBOSE=1
+	else
+		usage
+	fi
+elif [ $# -gt 1 ]; then
+	usage
+fi
+
+cat "$CPUINFO" "$FRSHD" >/dev/null || exit 1
+
+CPUUTL=`awk '
+BEGIN {IGNORECASE=1; sum=0}
+($1 == "bogomips") {sum += $3}
+END {print(sum * 25)}
+' <"$CPUINFO"`
+
+awk -v totunits="$CPUUTL" -v verbose="$VERBOSE" '
+BEGIN {
+	sum = 0;
+	fail = 0;
+	weight = -1;
+	id = -1;
+	getline;
+	if ($1 == "Version:") {
+		getline;
+	}
+	for (i = 0; i < NF; i++) {
+		if ($i == "weight") {
+			weight = i;
+		}
+		if ($i == "id") {
+			id = i;
+		}
+	}
+	if (weight == -1) {
+		print("ERROR: Unknown format of '"$FRSHD"' column: weight not found");
+		fail = 1;
+		exit;
+	}
+	if (id == -1) {
+		print("ERROR: Unknown format of '"$FRSHD"' column: id not found");
+		fail = 1;
+		exit;
+	}
+	if (verbose) {
+		print("VEID\t\tCPUUNITS");
+		print("-------------------------");
+	}
+}
+($1 == 0 && $id != 0) {
+	if ($weight > 0) {
+		units = int(500000/$weight);
+	} else if ($weight == 0) {
+		units = 500000;
+	}
+	if (verbose) {
+		if ($id == 2147483647) {
+			print("0\t\t" units);
+		} else {
+			print($id "\t\t" units);
+		}
+	}
+	sum += units;
+}
+END {
+	if (fail)
+		exit 1;
+	print("Current CPU utilization: " sum);
+	print("Power of the node: " int(totunits));
+	if (sum > totunits)
+		print("Warning: hardware node is overcommitted");
+}' <"$FRSHD"

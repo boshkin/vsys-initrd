@@ -1,0 +1,17 @@
+#!/bin/bash
+# russian localization file
+
+# INITIAL SETTINGS
+
+[ -f "/etc/settings" ] && . /etc/settings
+
+welcome_msg "
+
+   ===================================================
+   ${BOLD}Loading: ${MAGENTA}VirtualSystems${NORMAL}
+   Please ALT+F2 to view messages or wait.
+   ===================================================
+"
+
+
+

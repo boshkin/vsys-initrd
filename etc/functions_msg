@@ -1,0 +1,49 @@
+#!/bin/bash
+# initialization functions for distribute startup
+# copyrights by virtualsystems
+# version of functions script 1.0
+# cmdline options (append string from syslinux)
+
+_e() { echo -e "$@" ;}
+
+mount | egrep -qw "proc" || { mkdir -p /proc ; mount -t proc proc /proc ;}
+
+get_cmdvar() 		{ egrep -o "${1}[^ ]*" $PROC_CMD_FILE || false ;}
+get_optvar_double() { local o=$(get_cmdvar "$1" | sed "s|^[^ ]*:||g")  ; [ -n "${o}" ] && _e "${o}" || false ;}
+get_optvar_point() 	{ local o=$(get_cmdvar "$1" | sed "s|^[^ ]*\.||g") ; [ -n "${o}" ] && _e "${o}" || false ;}
+get_optvar_dash() 	{ local o=$(get_cmdvar "$1" | sed "s|^[^ ]*=||g")  ; [ -n "${o}" ] && _e "${o}" || false ;}
+
+# messages
+cp_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${GREEN}+${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ;}
+bad_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${BAD}-${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ; false ;}
+LEVEL__MSG() 		{
+	LEVEL_MSGS=("$MSG_0088" "$MSG_0089" "$MSG_0090" "$MSG_0091" "$MSG_0092" "$MSG_0093" "$MSG_0094" "$MSG_0095" "$MSG_0096" "$MSG_0097" "$MSG_0098")
+	_e " ${GREEN}[$((${1}+1))/${#LEVEL_MSGS[*]}]${NORMAL} ${BOLD}${LEVEL_MSGS[$1]}${NORMAL}"
+}
+warn_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${WARN}+${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ;}
+good_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${GREEN}>>${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ; true ;}
+info_msg() 			{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${CYAN}??${NORMAL} ${BOLD}${x}${NORMAL} " > $CONSOLE_LOG 2>&1 ; true ;}
+modules_msg() 		{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${BOLD}[m]${NORMAL} ${BOLD}${x}${NORMAL}" > $CONSOLE_LOG 2>&1 ;}
+presents_msg() 		{ x=$1 ; x="${x:-...}" ; [ "$2" != 1 ] && _e " ${CYAN}!!${NORMAL} ${BOLD}${x}${NORMAL}" > $CONSOLE_LOG 2>&1 ;}
+dmesg_log() 		{ good_msg "You can read info ALT+F2" ; dmesg > ${CONSOLE_DEBUG} ;}
+view_vsys_ver() 	{ local f="$SYSTEM_VERSION_META" ; [ -f "${f}" ] && cat ${f} ;}
+
+
+mac_addr_dev() 		{
+	b=($(ifconfig -a | egrep -w "HWaddr ${1:0:2}:${1:2:2}:${1:4:2}:${1:6:2}:${1:8:2}:${1:10:2}"))
+	[ -n "$1" ] && [ -n "${b[0]}" ] && echo ${b[0]} || false
+}
+
+mounted_probe() { egrep -qw "$@" /proc/mounts && true || false ;}
+usable_params() { sed -n '/_'$1'() {/,/\n}/p' $ETC_FUNC_FILE | egrep "[^ ]*__[^ ]*\)" | sed 's|)||g' | tr '\t' ' ' ;}
+
+include_lang() { [ -f "$LANGUAGE_DIR/${1}.lng" ] && . /$LANGUAGE_DIR/${1}.lng || . $LANGUAGE_DIR/${1}.lng ;}
+
+hdd_info_msg() {
+    hdparm -i $1 | egrep -o "Model=[^,]*|FwRev=[^,]*|UDMA modes: [^>]*" |
+    sed 's|Model=| HD DRIVE:\t |g;s|FwRev=| FIRMWARE:\t |g;s|UDMA modes: [^>]*\*| UDMA MODE:\t |g'
+    _e " TEMPERATURE:\t $(hddtemp -q $1 | awk '{print $4}')"
+}
+
+good_msg "Loading functions_msg"
+

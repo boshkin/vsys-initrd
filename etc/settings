@@ -1,0 +1,109 @@
+#!/bin/bash
+
+PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+
+BACK_UP="\033[1K\033[0G"
+NORMAL="\033[0m"
+WARN="\033[33;1m"
+BAD="\033[31;1m"
+BOLD="\033[1m"
+GOOD="\033[32;1m"
+RESET="\033[R"
+CRE="\033[K"
+NORMAL="\033[0;39m"
+RED="\033[31;1m"
+GREEN="\033[1;32m"
+YELLOW="\033[1;33m"
+BLUE="\033[1;34m"
+MAGENTA="\033[1;35m"
+CYAN="\033[1;36m"
+WHITE="\033[1;37m"
+BLACK="\033[1;30m"
+
+# set bootloader
+BOOTLOADER="syslinux"
+ISOBOOTLOADER="isolinux"
+
+NEW_ROOT="/.newroot"
+CDROM="/cdrom"
+SQDIR="/.livecd"
+AMEMR="/.memory"
+AMEMO="/.memo"
+PROC_DIR="/proc"
+PROC_CMD_FILE="/proc/cmdline"
+
+CREATE_INITRD_DIRS=(dev boot media mnt proc root sys tmp var/run var/log var/lib var/empty home vsys ${CDROM} ${NEW_ROOT} ${AMEMR} ${AMEMO} ${SQDIR})
+
+DEV_TAR_FILE="/lib/dev.tar"
+AES_KEY="0023deed51faab91b1d0f7180af170af"
+FLASH_DEVICE="/dev/sda1" # deprecated
+
+CONSOLE_DEBUG="/dev/tty2"
+CONSOLE_LOG="/dev/tty1"
+CONSOLE="/dev/console"
+
+TERM_FONT="/etc/font.psf"
+TERM_MAP="/etc/ru.trans"
+
+LIMIT_MEMORY="100"
+
+#KERN_VER=$(uname -r | sed 's|\.||g;s|-||g')
+VSYS_DATA_LOOP_NAME="secure.dat"
+VSYS_DATA_LOOP_PATH="$CDROM/$VSYS_DATA_LOOP_NAME"
+SQIMAGE="system.dat"
+VSYS_MOUNT_BINDS="etc"
+VSYS_DIR="vsys"
+
+SQFSIMAGE="$CDROM/$SQIMAGE"
+
+# kernel modules
+KERNEL_MODULES_PATH="/lib/modules"
+
+DEFAULT_IPADDR="192.168.1.2"
+DEFAULT_IPGW="192.168.1.1"
+
+S_DIR="/system"
+
+
+# get options from cmdline
+#GET_PROC_LINES=$(mount | egrep -qw "proc" || mkdir -p /tmp/$$ ; mount -t proc proc /tmp/$$ && cat /tmp/$$/cmdline ; umount /tmp/$$ ; rm -rf /tmp/$$)
+
+SYSTEM_VERSION_META="$CDROM/VERSION.txt"
+
+
+PROGRESS_SYMBOLS=('-' '/' '|' '\')
+
+EXPORT_COUNT_LEVELS="0"
+
+RESOLV_CONF_FILE="/etc/resolv.conf"
+LANGUAGE_DIR="etc/lang"
+CLEAR="/dev/null"
+DEBUG_PROC_FILE="/proc/sys/kernel/printk"
+
+INSTRUCTIONS_FILE="/usr/share/doc/instructions.txt"
+SYSVINIT_FILE="/sbin/init"
+#SQMODULES="$(uname -r | sed 's|\.||g;s|-||g').sq"
+SQMODULES="m_$(uname -r).sq"
+ETC_FUNC_FILE="/etc/functions"
+[ -f "$ETC_FUNC_FILE" ] || ETC_FUNC_FILE="etc/functions"
+
+
+TERMINAL_FONT="/etc/font.psf"
+
+# DAUSHOT SETTINGS
+DAUSHOT_FUNC_FILE="/bin/daushot"
+DAUSHOT_T_TMP="/tmp"
+DAUSHOT_COMPRESS="/usr/bin/xz"
+DAUSHOT_COMPRESS_FILE_TYPE="txz"
+DAUSHOT_COMPRESS_FILE_DEL="del"
+DAUSHOT_UNCOMPRESS="/usr/bin/xzcat"
+DAUSHOT_CACHE_DIR="$CDROM/cache"
+DAUSHOT_CACHE_SAVES_DIR="$DAUSHOT_CACHE_DIR/saves"
+DAUSHOT_SNAPSHOT_TXZ_NAME="latest.$DAUSHOT_COMPRESS_FILE_TYPE"
+DAUSHOT_SNAPSHOT_DEL_NAME="latest.$DAUSHOT_COMPRESS_FILE_DEL"
+DAUSHOT_SNAPSHOT_TXZ_FILE="$DAUSHOT_CACHE_DIR/$DAUSHOT_SNAPSHOT_TXZ_NAME"
+DAUSHOT_SNAPSHOT_DEL_FILE="$DAUSHOT_CACHE_DIR/$DAUSHOT_SNAPSHOT_DEL_NAME"
+DAUSHOT_TMP_DIR="$DAUSHOT_T_TMP/__T__"
+DAUSHOT_DMP_DIR="$DAUSHOT_T_TMP/__D__"
+
+

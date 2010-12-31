@@ -1,0 +1,108 @@
+#!/bin/bash
+
+ignore_ifaces="lo|venet0|vboxnet0|eth1|sit0|6to4@NONE"
+
+PATH="/sbin:/bin:/usr/sbin:${PATH}"
+
+[ -z $1 ] && exit 1
+for i in $1
+do
+   case "${i}" in
+	up)
+		IFS=".";bb=($(cat /proc/uptime));echo "$((${bb}/$((24*3600))))d";bb=;IFS=
+	;;
+	cb)
+		case $2 in
+			all)
+				ip link | grep "^[0-9]:" | egrep -wv "$ignore_ifaces" | awk '{print $2}' | sed 's|:||g' |
+				while read i
+				do
+					xx=($(iptables -L INPUT -n -v | grep -w "ACCEPT.*all.*${i}" | awk '{print $2}') $(iptables -L OUTPUT -n -v | grep -w "ACCEPT.*all.*${i}" | awk '{print $2}'))
+					rx=${xx[0]}
+					tx=${xx[1]}
+					echo -n "${i}:${rx}/${tx} "
+					#echo $i
+				done ; echo
+			;;
+			*)
+				xx=($(iptables -L INPUT -n -v | grep -w "ACCEPT.*all.*${2}" | awk '{print $2}') $(iptables -L OUTPUT -n -v | grep -w "ACCEPT.*all.*${2}" | awk '{print $2}'))
+				rx=${xx[0]}
+				tx=${xx[1]}
+				echo ${2}:${rx}/${tx}
+			;;
+		esac
+	;;
+	cbt)
+		echo '<table>'
+		ip link | grep "^[0-9]:" | egrep -v "$ignore_ifaces" | awk '{print $2}' | sed 's|:||g' |
+		while read i
+		do
+			xx=($(sudo iptables -L INPUT -n -v | grep -w "ACCEPT.*all.*${i}" | awk '{print $2}') $(sudo iptables -L OUTPUT -n -v | grep -w "ACCEPT.*all.*${i}" | awk '{print $2}'))
+			rx=${xx[0]}
+			tx=${xx[1]}
+			echo '<tr><th>'${i}':</th><td align="right" style="padding:0 5px">'${rx}'</td><td width="10">|</td><td align="left">'${tx}'</td></tr> '
+		done
+		
+		echo '</table>'
+		
+	;;
+	cba)
+		/sbin/ip link | 
+			grep -w "^[0-9]:" |
+			awk '{print $2}' | 
+			sed 's|:||g' | 
+				while read link
+				do
+					$0 cb $link
+				done
+	;;
+	cba_table)
+	
+		echo "<table>"
+	
+		/sbin/ip link | 
+			grep -w "^[0-9]:" |
+			awk '{print $2}' |
+			sed 's|:||g' | 
+				while read link
+				do
+					$0 cbt $link
+				done
+		echo "</table>"
+	;;
+	cpu_sens_table)
+		echo '<table>'
+		sensors | while read i
+		do
+			echo "${i}" | sed 's|^|<tr><td>|g;s|:|</td><td>|g;s|$|</td></tr>|g'
+		done
+		echo '</table>'
+	;;
+	hdd_sens_table)
+		echo '<table>'
+		find /dev -name "sd[a-z]*" | egrep -v "sd[a-z][0-9]:*" | while read i
+		do
+			b=($(hddtemp -q $i))
+			[[ -n "$b" ]] && echo "${b[@]}" | sed 's|^|<tr><td>|g;s|:|</td><td>|g;s|$|</td></tr>|g;s|°C||g'
+		done | sort -dk3
+		echo '</table>'
+	;;
+	hds)
+		mount | awk '{print $1}' | egrep -o "/dev/sd[a-z][0-9]+" | sed "s|[0-9]*||g" | sort -u | while read i
+		do
+			b=($(hddtemp -q $i))
+			[[ -n "$b" ]] && echo "${b[@]}" | sed 's|°C||g'
+			#echo $i
+		done | sort -dk3
+	;;
+
+	cpu_info_table)
+		echo '<table>'
+		cat /proc/cpuinfo | while read i
+		do
+			[[ -n "$i" ]] && echo "${i}" | sed 's|^|<tr><td>|g;s|:|</td><td>|g;s|$|</td></tr>|g'
+		done
+		echo '</table>'
+	;;
+   esac
+done

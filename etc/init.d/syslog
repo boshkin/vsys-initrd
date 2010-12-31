@@ -1,0 +1,13 @@
+#!/bin/bash
+
+_start() {
+	good_msg "Запускается: Syslog-ng"
+	/usr/sbin/syslog-ng
+}
+
+_stop() {
+	good_msg "Остановка: Syslog-ng"
+	killall syslog-ng
+}
+
+. /sbin/rund

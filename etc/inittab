@@ -1,0 +1,12 @@
+::sysinit:/etc/init.d/rcS
+
+tty1::respawn:-/bin/_bash
+tty2::respawn:-/bin/_bash
+tty3::respawn:-/bin/_bash
+tty4::respawn:-/bin/_bash
+ttyS0::respawn:-/bin/_bash
+ttyS1::respawn:-/bin/_bash
+
+::restart:/sbin/init
+::ctrlaltdel:/sbin/reboot
+#::shutdown:/sbin/

@@ -1,0 +1,67 @@
+#!/bin/bash
+# Copyrights in virtualsystems.ru
+# Edited by pp--
+# Version 1.5
+# This script mounting all logical hard disks in to system
+# need deprecated to work swap file and system
+
+log_file="/var/log/automount.log"
+storage_dir="/media"
+fsnomount="loop[0-9]*|swap|linux_raid_member"
+fixntfs="ntfs|ntfs-3g"
+
+_start() {
+
+[ -d "$storage_dir" ] || mkdir -p "$storage_dir"
+
+mdadm --auto-detect
+[ -f "/sbin/mdev" ] && /sbin/mdev -s
+
+blkid -s TYPE | egrep -v "$fsnomount" |
+while read block
+do
+	fsarr=(${block})
+	fsblock="${fsarr[0]/:}"
+	fslabel=$(blkid -s LABEL $fsblock | awk '{print $2}' | sed "s|LABEL=\"||g;s|\"||g")
+	[ ! -z "$fslabel" ] && fslabel="${fsblock[0]/\/\dev\/}_${fslabel}" || fslabel="${fsblock[0]/\/\dev\/}_nolabel"
+	fstype=$(echo "${fsarr[1]}" | sed "s|TYPE=\"||g;s|\"||g;s|$fixntfs|g")
+	egrep -q "$fsblock" /proc/mounts || {
+		[ ! -d "$storage_dir/$fslabel" ] && mkdir -p "$storage_dir/$fslabel"
+		good_msg "Проверяется на ошибки: $fsblock"
+		fsck -p $fsblock
+		if [ "$?" == "0" ]
+		then
+			good_msg "Диск: $fsblock проверен на ошибки"
+		else
+			warn_msg "Программа: $fsblock вернула ошибку, возможно надо мануально запустить fsck для диска: $fsblock"
+		fi
+		mount -t $fstype $fsblock "$storage_dir/$fslabel" > /dev/null 2>&1 
+		if [ "$?" == "0" ]
+		then
+			good_msg "Подключаю диск: $fsblock в директорию: $storage_dir/$fslabel"
+		else
+			warn_msg "Невозможно подключить диск: $fsblock"
+		fi
+        }
+
+done
+}
+
+_stop() {
+
+	good_msg "Производится отключение подключенных разделов"
+	for dir in $(ls ${storage_dir})
+	do
+		mount -o remount,ro ${storage_dir}/${dir} > /dev/null 2>&1
+		umount ${storage_dir}/${dir} > /dev/null 2>&1
+		if [ "$?" == "0" ]
+		then
+			good_msg "Отключается раздел: ${storage_dir}/$dir"
+		else
+			bad_msg "Отключается раздел: ${storage_dir}/$dir"
+		fi
+	done
+
+}
+
+. /sbin/rund

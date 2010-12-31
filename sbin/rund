@@ -1,0 +1,26 @@
+#!/bin/bash
+
+. /vsys/scripts/functions
+
+#rd="/etc/run.d"
+
+#if [ -d "$rd" ]
+#then
+#	echo
+#else
+#	bad_msg "Директория: $rd не существует"
+#	exit 1
+#fi
+
+_help() {
+	help_msg "help"
+}
+
+case $1 in
+	start) 		_start 		;;
+	stop) 		_stop 		;;
+	restart) 	_restart 	;;
+	*) 		_help 		;;
+esac
+
+

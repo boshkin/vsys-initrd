@@ -1,0 +1,100 @@
+#!/bin/bash
+# Copyright 2009 VirtualSystems
+# Distributed under the terms of the GNU General Public License v2
+# Version initrd-2.3 (Вск Ноя 28 22:37:32 MSK 2010)
+# This release unstable and beta testing
+
+/bin/busybox --install -s
+
+[ -f "/etc/functions" ] && . /etc/functions
+
+# Mount tmpfs in /dev and extract devices
+_dev MOUNT__DEV_TMPFS
+#############################
+# Param: lang:value
+# - Set localization system settings
+_dev SET__LANGUAGE
+#############################
+# Initializing initrd subsystem
+_dev MOUNT__INITRD_SYSTEM
+#############################
+# Presenting banner
+_run VIEW__PRESENTS
+#############################
+# Param: debug:123456789 (default: 7)
+# - Set debug dmesg parameter
+_dev SET__DEBUG_LOG_LEVEL
+#############################
+# Detecting storage devices
+_dev DETECT__MDADM_RAID
+#############################
+# Param: fstype:cdrom
+# uses only isolinux image creation
+_dev MOUNT__CDROM_SYSTEM_DATA
+#############################
+# Param: system_dev:LABEL_or_UUID
+# - Scaning hardware and loading system disk [A]
+_dev MOUNT__SYSTEM_DEV
+#############################
+# Mounting another kernel modules in to $CDROM/settings
+_dev MOUNT__INITRD_KERNEL_MODULES
+#############################
+# Loading found modules for this hardware
+_dev MODULES__LOAD_PCI_DRIVERS
+#############################
+# Param: secure_dev:LABEL_or_UUID
+# - Scaning system, mounting secure LABEL or UUID system disk [B]
+# - File system does not matter ext2-4, reiser3-4, xfs
+# - This is parameter needed virtualbox loading or vmware iso disk
+_dev MOUNT__SECURE_DEV
+#############################
+# Param: system_move_dat:LABEL_or_UUID
+_dev MOUNT__UPDATE_SYSTEM_MOVE_DATA
+#############################
+# Param: secure_dat:LABEL_or_UUID
+# - This option searching secure.dat loop disk [B] in logical hardware disks
+_dev MOUNT__SECURE_DAT
+#############################
+# Param required: init:sysvinit
+# - Predefined location loading squashed system.dat and mounting over
+# advanced multi layered unification filesystem - aufs2
+_dev MOUNT__SQLZMA_AUFS
+#############################
+# param daushot:value
+# Daushot is a sync saved files
+_dau EXEC__DAUSHOT
+#############################
+# Move all system directorys in to new location
+_dev MOUNT__NEWROOT_SYSTEM
+#############################
+# Param: daushot_hdsync:LABEL_or_UUID
+# !!experimental not tested!!
+# - Mounting logical disk instead of shared memory in aufs
+# - This option converts the root system on a logical drive 
+#   and the system image remains untouched, all the changed data 
+#   from / written to a logical drive.
+# - This option is useful if you need to use a logical 
+#   drive or a raid to work directly with the root file system
+_dev MOUNT__DAUSHOT_HDSYNC
+#############################
+# Loading ethernet for init:safe
+# Params required:
+# static route boot params  = hwmac:000C29E6B555 ipaddr:1.1.1.10 ipgw:1.1.1.1 dns:1.1.1.1,2.2.2.2 hostname:safemode
+# dynamic route boot params = ipaddr:dhcp
+_net IF__UP_INTERFACE
+#############################
+# Param: init:value
+# Defined values:
+# - init:sysvinit   = switch_root for new squash system or loading safe subsystem
+# - init:safe       = loading initrd inittab and environment
+_run START__NEWROOT_SYSTEM
+#############################
+# If you not define different options system_dev, secure_dev, etc
+# system will loading safe mode and network.
+_run SET__INITRD_ENV SHELL__FAIL_SAFE_MODE
+#############################
+
+
+
+
+
